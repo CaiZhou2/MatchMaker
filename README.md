@@ -6,6 +6,10 @@ A mobile-friendly Progressive Web App for planning weekly team tournaments. Matc
 
 > **Non-commercial use only.** See [LICENSE](LICENSE).
 
+> ⭐ **If MatchMaker is useful for your group, please consider starring the repository** — it's the simplest way to help other organizers find the project, and it costs you nothing. Thank you!
+
+📖 **Just running a tournament?** Skip the rest of this README and read the [**Organizer Quick-Start Guide**](docs/ORGANIZER_GUIDE.md) — written for non-technical users, gets you from zero to running your first event in 10 minutes.
+
 ---
 
 ## Features
