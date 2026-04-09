@@ -18,6 +18,77 @@
 
 const STORAGE_KEY = 'matchmaker-data-v1';
 
+// IndexedDB shadow-backup constants. We never read from IDB during
+// normal operation — it's only consulted on startup IF localStorage
+// turns up empty (i.e. iOS Safari ITP just nuked it). The whole point
+// of this layer is durability against ITP eviction, since IDB is NOT
+// subject to the same 7-day cleanup as localStorage.
+const IDB_NAME = 'matchmaker';
+const IDB_VERSION = 1;
+const IDB_STORE = 'state';
+const IDB_KEY = 'data';
+
+// Lightweight Promise wrapper around the (callback-based) IDB API.
+// Returns null when IDB isn't available (e.g. private browsing mode
+// in some browsers, or our test harness without an IDB shim).
+function _idbOpen() {
+  return new Promise((resolve) => {
+    if (typeof indexedDB === 'undefined') {
+      resolve(null);
+      return;
+    }
+    let req;
+    try {
+      req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    } catch (e) {
+      resolve(null);
+      return;
+    }
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => resolve(null);
+    req.onblocked = () => resolve(null);
+  });
+}
+
+async function _idbWrite(jsonString) {
+  try {
+    const db = await _idbOpen();
+    if (!db) return false;
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(jsonString, IDB_KEY);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    });
+  } catch (e) {
+    console.warn('IDB write failed:', e);
+    return false;
+  }
+}
+
+async function _idbRead() {
+  try {
+    const db = await _idbOpen();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(IDB_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch (e) {
+    console.warn('IDB read failed:', e);
+    return null;
+  }
+}
+
 const Storage = {
   _data: null,
 
@@ -36,9 +107,44 @@ const Storage = {
 
   save() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this._data));
+      const json = JSON.stringify(this._data);
+      localStorage.setItem(STORAGE_KEY, json);
+      // Mirror to IndexedDB as a durability safety net (fire-and-forget;
+      // we don't await because save() is synchronous from the caller's
+      // POV and should never block on IO).
+      _idbWrite(json).catch(() => {});
     } catch (e) {
       console.error('Storage save failed:', e);
+    }
+  },
+
+  /**
+   * Called once at app startup, BEFORE the first load(), to recover
+   * data from the IDB shadow if localStorage has been wiped (the
+   * canonical iOS Safari ITP failure mode). If IDB also has nothing,
+   * resolves with `false` and we proceed with a fresh empty state.
+   *
+   * Async because IDB is async-only. Idempotent — safe to call from
+   * tests or on every page load. Never throws.
+   */
+  async restoreFromIdbIfNeeded() {
+    try {
+      // Already have localStorage data → nothing to do
+      const existing = localStorage.getItem(STORAGE_KEY);
+      if (existing && existing.length > 2) return false;  // "{}" is len 2
+
+      const json = await _idbRead();
+      if (!json) return false;
+      // Validate it parses before writing it back to localStorage,
+      // otherwise corrupt IDB data would poison both stores.
+      JSON.parse(json);
+      localStorage.setItem(STORAGE_KEY, json);
+      // Force re-load on next access
+      this._data = null;
+      return true;
+    } catch (e) {
+      console.warn('IDB restore failed:', e);
+      return false;
     }
   },
 

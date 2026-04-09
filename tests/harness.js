@@ -22,11 +22,97 @@ const vm = require('vm');
 
 const WEB_DIR = path.join(__dirname, '..', 'web');
 
+// ─── Minimal IndexedDB shim (in-memory) ────────────────────────
+//
+// Just enough of the IDB surface that storage.js's _idbOpen / _idbRead /
+// _idbWrite work without changes. Stores are keyed by name; rows are
+// plain objects. Transactions are synchronous in this fake — we still
+// invoke onsuccess / oncomplete callbacks via setTimeout(0) so the
+// async flow matches real IDB semantics closely enough for our tests.
+function createFakeIndexedDB() {
+  const databases = {};
+
+  function makeStore() {
+    const rows = new Map();
+    return {
+      get(key) {
+        const req = { result: undefined, onsuccess: null, onerror: null };
+        setTimeout(() => {
+          req.result = rows.has(key) ? rows.get(key) : undefined;
+          if (req.onsuccess) req.onsuccess();
+        }, 0);
+        return req;
+      },
+      put(value, key) {
+        const req = { onsuccess: null, onerror: null };
+        rows.set(key, value);
+        setTimeout(() => { if (req.onsuccess) req.onsuccess(); }, 0);
+        return req;
+      },
+      _rows: rows,
+    };
+  }
+
+  function makeDb(name) {
+    const stores = {};
+    const db = {
+      objectStoreNames: {
+        contains(n) { return !!stores[n]; },
+      },
+      createObjectStore(n) {
+        stores[n] = makeStore();
+        db.objectStoreNames.contains = (k) => !!stores[k];
+        return stores[n];
+      },
+      transaction(storeName /*, mode*/) {
+        const store = stores[storeName];
+        const tx = {
+          oncomplete: null, onerror: null, onabort: null,
+          objectStore() { return store; },
+        };
+        // Fire oncomplete after a tick so any get/put callbacks run first
+        setTimeout(() => { if (tx.oncomplete) tx.oncomplete(); }, 1);
+        return tx;
+      },
+      _stores: stores,
+    };
+    return db;
+  }
+
+  return {
+    open(name /*, version*/) {
+      const req = {
+        result: null,
+        onupgradeneeded: null,
+        onsuccess: null,
+        onerror: null,
+        onblocked: null,
+      };
+      setTimeout(() => {
+        let db = databases[name];
+        const isNew = !db;
+        if (isNew) {
+          db = makeDb(name);
+          databases[name] = db;
+        }
+        req.result = db;
+        if (isNew && req.onupgradeneeded) {
+          req.onupgradeneeded({ target: req });
+        }
+        if (req.onsuccess) req.onsuccess();
+      }, 0);
+      return req;
+    },
+    _databases: databases,
+  };
+}
+
 function createHarness(opts = {}) {
   const {
     language = 'en-US',       // navigator.language value
     savedLang = null,         // pre-seeded localStorage['matchmaker-lang']
     storageData = null,       // pre-seeded localStorage['matchmaker-data-v1']
+    withIdb = false,          // attach a fake IndexedDB to the sandbox
   } = opts;
 
   // In-memory localStorage
@@ -62,6 +148,10 @@ function createHarness(opts = {}) {
       documentElement: {},
     },
   };
+
+  if (withIdb) {
+    ctx.indexedDB = createFakeIndexedDB();
+  }
 
   // globalThis reference so scripts that use it work
   ctx.globalThis = ctx;

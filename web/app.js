@@ -1511,7 +1511,18 @@ function escapeHtml(s) {
 }
 
 /* ─── Event Wiring ──────────────────────────────────────────── */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // BEFORE any view renders, try to recover state from the IDB shadow
+  // backup. This is a no-op when localStorage already has data; the
+  // only time it does anything is after iOS Safari ITP wipes
+  // localStorage. Without this, the user would lose all of their
+  // history even though IDB still had the data.
+  try {
+    await Storage.restoreFromIdbIfNeeded();
+  } catch (e) {
+    console.warn('Startup IDB restore failed:', e);
+  }
+
   // Initialize i18n first — applies static string translations to the DOM.
   I18N.init();
 
