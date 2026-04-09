@@ -9,7 +9,7 @@
  */
 
 /* ─── View Router ───────────────────────────────────────────── */
-const Views = ['home', 'db', 'setup', 'teams', 'tournament', 'done', 'history', 'player'];
+const Views = ['home', 'db', 'setup', 'teams', 'tournament', 'done', 'history', 'player', 'search'];
 let currentView = 'home';
 
 function showView(name) {
@@ -26,6 +26,7 @@ function showView(name) {
   if (name === 'tournament') renderTournament();
   if (name === 'history') renderHistory();
   if (name === 'player') renderPlayerDetail();
+  if (name === 'search') renderSearch();
 }
 
 function rerenderCurrentView() {
@@ -46,6 +47,8 @@ const ui = {
   dbSelectMode: false,
   dbSelected: new Set(),  // player ids
   detailPlayerId: null,   // currently-viewed player on the detail page
+  detailFrom: 'db',       // 'db' | 'search' — where to return on back
+  searchQuery: '',        // current text in the search input
 };
 
 /* ─── Small helpers ─────────────────────────────────────────── */
@@ -257,19 +260,89 @@ function renderDB() {
       row.classList.add('clickable');
       row.onclick = () => {
         ui.detailPlayerId = row.dataset.id;
+        ui.detailFrom = 'db';
         showView('player');
       };
     });
   }
 }
 
+/* ─── SEARCH ────────────────────────────────────────────── */
+function renderSearch() {
+  const players = Storage.getAllPlayers();
+  const resultsDiv = document.getElementById('search-results');
+  const input = document.getElementById('search-input');
+
+  // Restore the prior query when returning to this view; auto-focus
+  // so the keyboard pops on mobile.
+  if (input.value !== ui.searchQuery) input.value = ui.searchQuery;
+  // Defer focus until after the view becomes visible, otherwise iOS
+  // Safari refuses to focus a hidden element.
+  setTimeout(() => {
+    try { input.focus(); } catch (e) { /* ignore */ }
+  }, 50);
+
+  if (players.length === 0) {
+    resultsDiv.innerHTML = `<p class="empty">${escapeHtml(t('search.empty.db'))}</p>`;
+    return;
+  }
+
+  const q = ui.searchQuery.trim().toLowerCase();
+  const filtered = q === ''
+    ? [...players]
+    : players.filter(p => p.name.toLowerCase().includes(q));
+
+  if (filtered.length === 0) {
+    resultsDiv.innerHTML = `<p class="empty">${escapeHtml(t('search.no_results', { q: ui.searchQuery }))}</p>`;
+    return;
+  }
+
+  // Empty query → sort by points desc (mirror the leaderboard).
+  // Active query → exact match first, then prefix match, then substring.
+  filtered.sort((a, b) => {
+    if (q !== '') {
+      const an = a.name.toLowerCase(), bn = b.name.toLowerCase();
+      const aExact = an === q, bExact = bn === q;
+      if (aExact !== bExact) return aExact ? -1 : 1;
+      const aPrefix = an.startsWith(q), bPrefix = bn.startsWith(q);
+      if (aPrefix !== bPrefix) return aPrefix ? -1 : 1;
+    }
+    return b.points - a.points || a.name.localeCompare(b.name);
+  });
+
+  resultsDiv.innerHTML = filtered.map(p => {
+    const games = Storage.getTotalGames(p);
+    const wr = games > 0 ? fmtPct(Storage.getWinRate(p)) : '—';
+    const summary = t('search.row.summary', { points: p.points, wr });
+    return `
+      <div class="search-row clickable" data-id="${p.id}">
+        <span class="search-name">${escapeHtml(p.name)}</span>
+        <span class="search-summary">${escapeHtml(summary)}</span>
+      </div>
+    `;
+  }).join('');
+
+  resultsDiv.querySelectorAll('.search-row').forEach(row => {
+    row.onclick = () => {
+      ui.detailPlayerId = row.dataset.id;
+      ui.detailFrom = 'search';
+      showView('player');
+    };
+  });
+}
+
 /* ─── PLAYER DETAIL ──────────────────────────────────────── */
 function renderPlayerDetail() {
   const player = ui.detailPlayerId ? Storage.getPlayer(ui.detailPlayerId) : null;
   if (!player) {
-    showView('db');
+    showView(ui.detailFrom || 'db');
     return;
   }
+
+  // Update the back button so it returns to wherever we came from
+  // (db row click vs. search result click).
+  const backBtn = document.querySelector('#view-player .btn-back');
+  if (backBtn) backBtn.dataset.goto = ui.detailFrom || 'db';
 
   document.getElementById('player-detail-name').textContent = player.name;
 
@@ -1376,7 +1449,17 @@ document.addEventListener('DOMContentLoaded', () => {
   // Home
   document.getElementById('btn-start-event').onclick = startNewEvent;
   document.getElementById('btn-goto-db').onclick = () => showView('db');
+  document.getElementById('btn-goto-search').onclick = () => {
+    ui.searchQuery = '';
+    showView('search');
+  };
   document.getElementById('btn-resume-event').onclick = () => showView('tournament');
+
+  // Search
+  document.getElementById('search-input').addEventListener('input', e => {
+    ui.searchQuery = e.target.value;
+    renderSearch();
+  });
 
   // Leaderboard tabs
   document.querySelectorAll('.tab-btn').forEach(btn => {

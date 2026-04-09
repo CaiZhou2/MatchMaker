@@ -50,7 +50,8 @@ const TRANSLATIONS = {
     // ─── Home ────────────────────────────────────────────────
     'home.title': '主页',
     'home.btn.start': '开始本周比赛',
-    'home.btn.db': '选手数据库',
+    'home.btn.db': '📋 选手数据库',
+    'home.btn.search': '🔍 选手查询',
     'home.btn.resume': '继续未完成的比赛 (阶段: {phase}) →',
     'home.stats.players': '已注册选手',
     'home.stats.weeks': '最多参与周数',
@@ -99,6 +100,13 @@ const TRANSLATIONS = {
     'db.select.empty': '请先选择要删除的选手。',
     'db.select.confirm1': '确定要删除选中的 {n} 名选手吗？所有积分和历史数据都将丢失。',
     'db.select.confirm2': '再次确认：删除？',
+
+    // ─── Player search ──────────────────────────────────────
+    'search.title': '选手查询',
+    'search.placeholder': '输入姓名搜索...',
+    'search.empty.db': '尚无选手。先在选手数据库中添加。',
+    'search.no_results': '未找到与"{q}"匹配的选手。',
+    'search.row.summary': '{points} 分 · {wr}',
 
     // ─── Player detail ──────────────────────────────────────
     'player.stats.points': '积分',
@@ -258,7 +266,8 @@ const TRANSLATIONS = {
     // ─── Home ────────────────────────────────────────────────
     'home.title': 'Home',
     'home.btn.start': "Start this week's event",
-    'home.btn.db': 'Player Database',
+    'home.btn.db': '📋 Player Database',
+    'home.btn.search': '🔍 Find Player',
     'home.btn.resume': 'Resume event (phase: {phase}) →',
     'home.stats.players': 'Registered players',
     'home.stats.weeks': 'Most weeks played',
@@ -307,6 +316,13 @@ const TRANSLATIONS = {
     'db.select.empty': 'Select at least one player first.',
     'db.select.confirm1': 'Delete the {n} selected player(s)? All points and history will be lost.',
     'db.select.confirm2': 'Really delete?',
+
+    // ─── Player search ──────────────────────────────────────
+    'search.title': 'Find Player',
+    'search.placeholder': 'Type a name...',
+    'search.empty.db': 'No players yet. Add some in the Player Database first.',
+    'search.no_results': 'No players matching "{q}".',
+    'search.row.summary': '{points} pts · {wr}',
 
     // ─── Player detail ──────────────────────────────────────
     'player.stats.points': 'Points',

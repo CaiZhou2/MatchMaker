@@ -932,6 +932,33 @@ input:focus, textarea:focus, select:focus {
   margin: 14px 0 6px;
 }
 
+/* ─── Search results ───────────────────────────────────────────── */
+.search-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: var(--card-bg);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.search-row:hover {
+  background: var(--primary-light);
+  border-color: var(--primary);
+}
+.search-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.search-summary {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
 /* ─── Head-to-head table ───────────────────────────────────────── */
 .h2h-row {
   display: grid;

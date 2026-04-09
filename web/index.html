@@ -34,7 +34,10 @@
         <h2 data-i18n="home.title"></h2>
         <div id="home-stats" class="home-stats"></div>
         <button class="btn-primary" id="btn-start-event" data-i18n="home.btn.start"></button>
-        <button class="btn-secondary" id="btn-goto-db" data-i18n="home.btn.db"></button>
+        <div class="btn-row">
+          <button class="btn-secondary" id="btn-goto-db" data-i18n="home.btn.db"></button>
+          <button class="btn-secondary" id="btn-goto-search" data-i18n="home.btn.search"></button>
+        </div>
         <button class="btn-text full-width" id="btn-resume-event" style="display:none;"></button>
       </div>
 
@@ -55,11 +58,11 @@
             <span class="val" id="expense-total">0.00</span>
           </div>
         </div>
-        <button class="btn-secondary" id="btn-copy-expenses" data-i18n="expense.copy"></button>
         <div class="btn-row">
+          <button class="btn-secondary" id="btn-copy-expenses" data-i18n="expense.copy"></button>
           <button class="btn-secondary" id="btn-reset-expenses" data-i18n="expense.reset"></button>
-          <button class="btn-secondary hidden" id="btn-undo-expenses" data-i18n="expense.undo"></button>
         </div>
+        <button class="btn-secondary hidden" id="btn-undo-expenses" data-i18n="expense.undo"></button>
         <div class="hint" id="expense-hint"></div>
       </div>
     </section>
@@ -104,6 +107,22 @@
           <input type="file" id="import-file" accept=".json,application/json" style="display:none;">
           <div class="hint" data-i18n="db.io.hint"></div>
         </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- VIEW: PLAYER SEARCH                                  -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="view hidden" id="view-search">
+      <div class="card">
+        <div class="view-header">
+          <button class="btn-back" data-goto="home" data-i18n="common.back"></button>
+          <h2 data-i18n="search.title"></h2>
+        </div>
+        <div class="form-group">
+          <input type="text" id="search-input" data-i18n-ph="search.placeholder">
+        </div>
+        <div id="search-results"></div>
       </div>
     </section>
 
