@@ -24,6 +24,7 @@ function showView(name) {
   if (name === 'setup') renderSetup();
   if (name === 'teams') renderTeams();
   if (name === 'tournament') renderTournament();
+  if (name === 'done') renderDone();
   if (name === 'history') renderHistory();
   if (name === 'player') renderPlayerDetail();
   if (name === 'search') renderSearch();
@@ -55,6 +56,14 @@ const ui = {
   // rendering path when this is set, and the notice text branches
   // on chosenMode to distinguish "user picked friendly" from
   // "auto fell back to friendly".
+
+  // Snapshot of the just-committed event + the auto-backup outcome,
+  // kept around so the done view can re-render after a language
+  // switch (otherwise the imperatively-set HTML stays stuck in the
+  // language that was active when the user clicked "完成比赛").
+  lastEventSnapshot: null,
+  lastBackupSuccess: null,
+  lastCanShareFiles: false,
 };
 
 /* ─── Small helpers ─────────────────────────────────────────── */
@@ -364,6 +373,11 @@ function renderPlayerDetail() {
     <div class="stat-block"><div class="val">${player.wins}/${player.draws}/${player.losses}</div><div class="lbl">${escapeHtml(t('player.stats.wdl'))}</div></div>
   `;
 
+  // Win-rate trend chart (cumulative WR after each event the player attended)
+  const trendDiv = document.getElementById('player-detail-trend');
+  const trend = Storage.getWinRateTrend(player.id);
+  trendDiv.innerHTML = renderWinRateTrendChart(trend);
+
   const h2hDiv = document.getElementById('player-detail-h2h');
   const h2h = Storage.getHeadToHead(player.id);
   const opponents = Object.entries(h2h)
@@ -385,6 +399,86 @@ function renderPlayerDetail() {
       </div>
     `;
   }).join('');
+}
+
+/**
+ * Inline-SVG sparkline-style chart of cumulative win rate over time.
+ *
+ * Why inline SVG instead of a chart library? Two reasons: zero new
+ * dependencies (the project rule), and the chart is simple enough
+ * that hand-rolling it is shorter than wiring up Chart.js. The
+ * downside is no fancy tooltips, but for a one-line trend over a
+ * handful of points that's overkill anyway.
+ *
+ * Layout:
+ *   - 0-1 events → empty-state hint, no chart
+ *   - 2+ events → polyline with dots, plus a baseline at 50%, plus
+ *     the start/current/peak labels at the right
+ *
+ * The chart uses CSS variables (var(--primary), etc.) so it adapts
+ * to dark mode automatically. Y-axis is fixed 0-100%; X-axis is
+ * sequential event index (no time scaling — events are equidistant
+ * regardless of how far apart in calendar time they happened).
+ */
+function renderWinRateTrendChart(trend) {
+  if (!trend || trend.length < 2) {
+    return `<p class="empty">${escapeHtml(t('player.trend.empty'))}</p>`;
+  }
+
+  const W = 320, H = 100;
+  const padL = 8, padR = 56, padT = 8, padB = 8;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+
+  const lastIdx = trend.length - 1;
+  const xAt = (i) => padL + (lastIdx === 0 ? 0 : (i / lastIdx) * innerW);
+  const yAt = (wr) => padT + (1 - wr) * innerH;
+
+  const linePoints = trend.map((p, i) => `${xAt(i).toFixed(1)},${yAt(p.winRate).toFixed(1)}`).join(' ');
+
+  const dots = trend.map((p, i) => `
+    <circle cx="${xAt(i).toFixed(1)}" cy="${yAt(p.winRate).toFixed(1)}"
+            r="2.5" class="trend-dot"/>
+  `).join('');
+
+  // Y baseline at 50%
+  const baselineY = yAt(0.5);
+
+  // Current value label, anchored to the right of the last point
+  const lastPt = trend[lastIdx];
+  const labelX = padL + innerW + 6;
+  const labelY = yAt(lastPt.winRate);
+
+  // Current / peak summary line below the chart
+  const peakWr = trend.reduce((m, p) => p.winRate > m ? p.winRate : m, 0);
+
+  return `
+    <div class="trend-chart">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" aria-label="${escapeHtml(t('player.trend.title'))}">
+        <!-- 50% baseline -->
+        <line x1="${padL}" y1="${baselineY}" x2="${padL + innerW}" y2="${baselineY}"
+              class="trend-baseline" stroke-dasharray="2 3"/>
+        <!-- 0% / 100% labels on the right axis -->
+        <text x="${labelX}" y="${padT + 4}" class="trend-axis-label">100%</text>
+        <text x="${labelX}" y="${baselineY + 3}" class="trend-axis-label">50%</text>
+        <text x="${labelX}" y="${padT + innerH + 4}" class="trend-axis-label">0%</text>
+        <!-- Trend line -->
+        <polyline points="${linePoints}" fill="none" class="trend-line"/>
+        <!-- Dots -->
+        ${dots}
+        <!-- Current-value highlight -->
+        <circle cx="${xAt(lastIdx).toFixed(1)}" cy="${labelY.toFixed(1)}"
+                r="4" class="trend-dot trend-dot-current"/>
+      </svg>
+      <div class="trend-summary">
+        ${escapeHtml(t('player.trend.summary', {
+          events: trend.length,
+          current: fmtPct(lastPt.winRate),
+          peak: fmtPct(peakWr),
+        }))}
+      </div>
+    </div>
+  `;
 }
 
 function toggleDbSelectMode() {
@@ -1212,35 +1306,55 @@ function finishTournament() {
   if (!confirm(t('tour.confirm.finish'))) return;
 
   try {
-    const summary = buildEventSummary(ev);
+    // Snapshot the event BEFORE commitEvent nulls it out, so renderDone
+    // can re-build the summary on language switch later.
+    ui.lastEventSnapshot = JSON.parse(JSON.stringify(ev));
+
     Storage.commitEvent();
-    document.getElementById('done-summary').innerHTML = summary;
 
     // Auto-backup: download the new state immediately so the organizer
-    // doesn't have to remember to do it manually. The backup notice on
-    // the Done view tells them what just happened (success → green
-    // notice; failure → orange "please export manually" notice).
-    const ok = triggerBackupDownload();
-    showBackupNotice(ok);
+    // doesn't have to remember to do it manually. The done view's
+    // backup notice tells them what happened.
+    ui.lastBackupSuccess = triggerBackupDownload();
 
-    // Show the "📤 分享备份" button only if the browser supports
-    // sharing files (Android Chrome, iOS Safari ≥ 15-ish). On
-    // unsupported browsers we hide it instead of showing a non-working
-    // button.
-    const shareBtn = document.getElementById('btn-share-backup');
-    const canShareFiles =
+    // Whether the browser supports the Web Share API for files
+    // (Android Chrome, iOS Safari ≥ 15-ish). Cached so renderDone
+    // doesn't have to recompute it on every language switch.
+    ui.lastCanShareFiles = !!(
       navigator.share &&
       navigator.canShare &&
       navigator.canShare({
         files: [new File(['x'], 'x.json', { type: 'application/json' })],
-      });
-    shareBtn.classList.toggle('hidden', !canShareFiles);
+      })
+    );
 
     showView('done');
   } catch (e) {
     console.error('Finish tournament failed:', e);
     alert(t('tour.error.finish', { msg: e.message || String(e) }));
   }
+}
+
+// Re-renders the done view from the snapshot we captured at commit
+// time. Called by showView('done') so that:
+//   1. The initial post-commit render shows the correct summary +
+//      backup notice in the active language.
+//   2. A subsequent language switch (rerenderCurrentView) re-runs us
+//      and updates every translated string on the view, instead of
+//      leaving them frozen at whatever language was active when the
+//      user originally tapped "完成比赛".
+function renderDone() {
+  if (!ui.lastEventSnapshot) {
+    // User landed on done without going through finishTournament
+    // (e.g. deep-linked or refreshed) — bail back to home.
+    showView('home');
+    return;
+  }
+  document.getElementById('done-summary').innerHTML =
+    buildEventSummary(ui.lastEventSnapshot);
+  showBackupNotice(ui.lastBackupSuccess);
+  document.getElementById('btn-share-backup')
+    .classList.toggle('hidden', !ui.lastCanShareFiles);
 }
 
 function showBackupNotice(success) {

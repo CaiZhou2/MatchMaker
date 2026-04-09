@@ -394,6 +394,51 @@ const Storage = {
    * via the existing _helpers.resolvePlaceholder logic, which already
    * walks the same history entry's results to figure out who advanced.
    */
+  /**
+   * Walks the history archive in chronological order and returns this
+   * player's cumulative win rate AFTER each event they attended.
+   * Used by the player-detail view to render a trend sparkline.
+   *
+   * Returns: [{ date, wins, draws, losses, games, winRate }, ...]
+   *   - One entry per event the player participated in
+   *   - Sorted by event date ascending
+   *   - winRate is the CUMULATIVE rate as of that event (not per-event)
+   *   - games is the cumulative game count
+   *
+   * Friendly events ARE included because friendly matches now update
+   * W/D/L (per the user's "no points but yes win rate" rule).
+   *
+   * If a history entry pre-dates the delta-archival format and lacks
+   * a `delta` map, that event contributes 0/0/0 — the trend stays
+   * flat instead of throwing.
+   */
+  getWinRateTrend(playerId) {
+    if (!playerId) return [];
+    const history = this.getHistory();
+    // Sort chronologically. Most events have ISO date strings; falling
+    // back to '' for malformed entries keeps them at the front.
+    const sorted = [...history].sort((a, b) =>
+      (a.date || '').localeCompare(b.date || '')
+    );
+
+    let wins = 0, draws = 0, losses = 0;
+    const trend = [];
+    for (const ev of sorted) {
+      if (!Array.isArray(ev.attendees) || !ev.attendees.includes(playerId)) continue;
+      const d = (ev.delta && ev.delta[playerId]) || {};
+      wins   += d.wins   || 0;
+      draws  += d.draws  || 0;
+      losses += d.losses || 0;
+      const games = wins + draws + losses;
+      trend.push({
+        date: ev.date || '',
+        wins, draws, losses, games,
+        winRate: games > 0 ? wins / games : 0,
+      });
+    }
+    return trend;
+  },
+
   getHeadToHead(playerId) {
     if (!playerId) return {};
     const history = this.getHistory();

@@ -102,6 +102,137 @@ test('scheduler: handles N not divisible by team_size (leaves spectators)', () =
 });
 
 /* ──────────────────────────────────────────────────────────
+ * Snake-then-random distribution
+ *
+ * The "top half snake, bottom half random" rule keeps team strength
+ * balanced for larger team sizes (3+) where the old "captain + pure
+ * random" rule could produce wildly unbalanced teams. These tests
+ * pin down the snake phase deterministically by giving every player
+ * a unique win rate, then verify that:
+ *   1. Each team's first picks (the deterministic snake phase) sum
+ *      to the same value across teams.
+ *   2. The bottom-half players still end up randomly distributed
+ *      (no per-team pattern in their ordering).
+ * ────────────────────────────────────────────────────────── */
+
+test('snake: 12 players × team_size 4 → top 6 perfectly balanced across 3 teams', () => {
+  const h = createHarness();
+  // 12 players with deterministic, unique win rates so the snake
+  // phase is fully deterministic. Player 0 has the highest WR (10/0),
+  // player 11 the lowest (0/10), and everyone in between is unique.
+  const specs = Array.from({ length: 12 }, (_, i) => ({
+    name: `P${String(i).padStart(2, '0')}`,
+    w: 12 - i, d: 0, l: i,  // P00=12W/0L, P01=11W/1L, ..., P11=0W/12L
+  }));
+  const map = buildPlayers(h, specs);
+  const ids = Object.keys(map);
+
+  const result = h.formBalancedTeams(ids, map, 4);
+  assert.equal(result.teams.length, 3);
+  result.teams.forEach(t => assert.equal(t.players.length, 4));
+
+  // Resolve each player's rank (0 = best WR) so we can compare picks
+  const idToRank = {};
+  ids.forEach(id => {
+    const p = map[id];
+    const wr = p.wins / (p.wins + p.draws + p.losses);
+    idToRank[id] = 1 - wr;  // lower = better
+  });
+  // Re-rank by WR descending to get the actual sort order
+  const sortedIds = [...ids].sort((a, b) => idToRank[a] - idToRank[b]);
+  const rankOf = {};
+  sortedIds.forEach((id, idx) => { rankOf[id] = idx; });
+
+  // The TOP 6 ranks (0-5) are the "top half" of 12 — they go through
+  // the snake phase. The expected snake order:
+  //   round 0 (forward):  rank 0→T0, rank 1→T1, rank 2→T2
+  //   round 1 (backward): rank 3→T2, rank 4→T1, rank 5→T0
+  // So each team's snake picks are:
+  //   T0: ranks {0, 5} → sum 5
+  //   T1: ranks {1, 4} → sum 5
+  //   T2: ranks {2, 3} → sum 5
+  // Perfect balance.
+  result.teams.forEach((team, ti) => {
+    const snakePicks = team.players
+      .map(pid => rankOf[pid])
+      .filter(r => r < 6)
+      .sort((a, b) => a - b);
+    assert.equal(snakePicks.length, 2,
+      `team ${ti} should have exactly 2 top-half picks`);
+    assert.equal(snakePicks[0] + snakePicks[1], 5,
+      `team ${ti} top-half rank sum should be 5 (got ${snakePicks.join('+')})`);
+  });
+});
+
+test('snake: 8 players × team_size 4 → 2 teams, top 4 split (rank 0+3 vs rank 1+2)', () => {
+  const h = createHarness();
+  const specs = Array.from({ length: 8 }, (_, i) => ({
+    name: `P${i}`, w: 8 - i, d: 0, l: i,
+  }));
+  const map = buildPlayers(h, specs);
+  const ids = Object.keys(map);
+
+  const result = h.formBalancedTeams(ids, map, 4);
+  assert.equal(result.teams.length, 2);
+
+  // Snake fills top 4:
+  //   round 0:  rank 0→T0, rank 1→T1
+  //   round 1:  rank 2→T1, rank 3→T0
+  // → T0 picks {0, 3}, T1 picks {1, 2}. Both sum to 3.
+  const sorted = [...ids].sort((a, b) => {
+    const wrA = map[a].wins / (map[a].wins + map[a].losses);
+    const wrB = map[b].wins / (map[b].wins + map[b].losses);
+    return wrB - wrA;
+  });
+  const rankOf = {};
+  sorted.forEach((id, idx) => { rankOf[id] = idx; });
+
+  const t0Top = result.teams[0].players.map(p => rankOf[p]).filter(r => r < 4);
+  const t1Top = result.teams[1].players.map(p => rankOf[p]).filter(r => r < 4);
+  assert.equal(t0Top.sort().join(','), '0,3', 'team 0 top picks should be ranks 0 and 3');
+  assert.equal(t1Top.sort().join(','), '1,2', 'team 1 top picks should be ranks 1 and 2');
+});
+
+test('snake: bottom-half players still get fully assigned (no leftovers)', () => {
+  // Edge case: 9 players, teamSize 3 → 3 teams. halfBoundary = 4
+  // (snake fills 4 of 9 ranks). The bottom 5 get randomly distributed.
+  // Verify every player is assigned to exactly one team.
+  const h = createHarness();
+  const specs = Array.from({ length: 9 }, (_, i) => ({
+    name: `P${i}`, w: 9 - i, d: 0, l: i,
+  }));
+  const map = buildPlayers(h, specs);
+  const ids = Object.keys(map);
+
+  const result = h.formBalancedTeams(ids, map, 3);
+  const allPicks = result.teams.flatMap(t => t.players);
+  const uniquePicks = new Set(allPicks);
+  assert.equal(allPicks.length, 9);
+  assert.equal(uniquePicks.size, 9);
+  // Each team should have exactly 3 players
+  result.teams.forEach(t => assert.equal(t.players.length, 3));
+});
+
+test('snake: teamSize=2 still produces "captain + 1 random" (degenerate snake)', () => {
+  // For teamSize 2 the snake phase only fills the top numTeams ranks
+  // (the captains), and the bottom half is purely random — exactly
+  // matching the historical behaviour. This test pins that down so a
+  // future tweak can't accidentally regress it.
+  const h = createHarness();
+  const specs = Array.from({ length: 8 }, (_, i) => ({
+    name: `P${i}`, w: 8 - i, d: 0, l: i,
+  }));
+  const map = buildPlayers(h, specs);
+  const ids = Object.keys(map);
+
+  const result = h.formBalancedTeams(ids, map, 2);
+  // 4 teams, captains at index 0 by rank
+  assert.equal(result.teams.length, 4);
+  const captainNames = result.teams.map(t => map[t.players[0]].name);
+  assert.equal(captainNames.join(','), 'P0,P1,P2,P3');
+});
+
+/* ──────────────────────────────────────────────────────────
  * Round-robin planning
  * ────────────────────────────────────────────────────────── */
 

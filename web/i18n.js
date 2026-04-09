@@ -128,6 +128,9 @@ const TRANSLATIONS = {
     'player.stats.wdl': '胜/平/负',
     'player.h2h.title': '对位胜率',
     'player.h2h.empty': '尚无对位记录。完成几场比赛后这里会出现统计。',
+    'player.trend.title': '胜率趋势',
+    'player.trend.empty': '至少需要参加 2 场比赛才能展示趋势。',
+    'player.trend.summary': '{events} 场比赛 · 当前 {current} · 历史最高 {peak}',
 
     // ─── Event setup ─────────────────────────────────────────
     'setup.title': '本周比赛设置',
@@ -379,6 +382,9 @@ const TRANSLATIONS = {
     'player.stats.wdl': 'W/D/L',
     'player.h2h.title': 'Head-to-Head',
     'player.h2h.empty': 'No head-to-head records yet. Stats appear after a few completed matches.',
+    'player.trend.title': 'Win Rate Over Time',
+    'player.trend.empty': 'Need at least 2 events to chart a trend.',
+    'player.trend.summary': '{events} events · current {current} · peak {peak}',
 
     // ─── Event setup ─────────────────────────────────────────
     'setup.title': "This Week's Event",

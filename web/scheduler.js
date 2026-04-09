@@ -24,6 +24,37 @@ function playerTotalGames(p) {
 }
 
 /* ─── Team Formation ────────────────────────────────────────── */
+/**
+ * Forms `numTeams = floor(N / teamSize)` balanced teams from a roster.
+ *
+ * Two-phase distribution to keep matches fair regardless of team size:
+ *
+ *   1. **Snake-draft phase** for the top 50% of ranked attendees.
+ *      Walks ranks 0..⌊N/2⌋-1 like a serpentine fantasy draft —
+ *      forward through the teams (rank 0 → team 0, rank 1 → team 1,
+ *      ..., rank T-1 → team T-1), then backward (rank T → team T-1,
+ *      rank T+1 → team T-2, ...), and so on. This gives every team
+ *      one "captain"-tier player plus a balanced mix of upper-mid
+ *      players, so the SUM of the top-half ranks per team is as
+ *      equal as possible.
+ *
+ *   2. **Random fill phase** for the bottom 50%. Shuffle the
+ *      remaining attendees and round-robin them into the teams that
+ *      still have empty slots.
+ *
+ * Why split this way? With small teamSize (1 or 2), the snake phase
+ * is mostly captains and the result is indistinguishable from the
+ * old "captain + random fill" rule. With LARGER teamSize (3, 4, 5)
+ * the old rule was unfair: random distribution of 6+ non-captain
+ * players easily produces wildly unbalanced teams. Snake-drafting
+ * the top half tames the worst case while still leaving enough
+ * randomness in the bottom half to keep weekly events fresh.
+ *
+ * @returns {{teams: Array, spectators: Array}}
+ *   `teams[i].players` always has captain at index 0, then snake
+ *   picks, then random fills. `spectators` are extras that don't
+ *   evenly divide into teams (only happens when N % teamSize != 0).
+ */
 function formBalancedTeams(attendeeIds, playersMap, teamSize) {
   const n = attendeeIds.length;
   const numTeams = Math.floor(n / teamSize);
@@ -46,19 +77,43 @@ function formBalancedTeams(attendeeIds, playersMap, teamSize) {
     return jitter[a] - jitter[b];
   });
 
-  const captains = ranked.slice(0, numTeams);
-  const rest = shuffleCopy(ranked.slice(numTeams, numTeams * teamSize));
-  const spectators = ranked.slice(numTeams * teamSize);
-
-  const teams = captains.map((cap, i) => ({
+  const teams = Array.from({ length: numTeams }, (_, i) => ({
     id: `t_${i}`,
     name: `Team ${i + 1}`,
-    players: [cap],
+    players: [],
   }));
 
-  rest.forEach((pid, i) => {
-    teams[i % numTeams].players.push(pid);
-  });
+  // Half-boundary capped at the total slot count (T*teamSize), so a
+  // roster with extras (N % teamSize > 0) doesn't push spectators
+  // into the snake phase.
+  const totalSlots = numTeams * teamSize;
+  const halfBoundary = Math.min(Math.floor(n / 2), totalSlots);
+
+  // Phase 1: snake draft for ranks [0, halfBoundary)
+  for (let i = 0; i < halfBoundary; i++) {
+    const round = Math.floor(i / numTeams);
+    const posInRound = i % numTeams;
+    const teamIdx = (round % 2 === 0) ? posInRound : (numTeams - 1 - posInRound);
+    teams[teamIdx].players.push(ranked[i]);
+  }
+
+  // Phase 2: random fill for ranks [halfBoundary, totalSlots)
+  const bottomHalf = shuffleCopy(ranked.slice(halfBoundary, totalSlots));
+  let cursor = 0;
+  for (const pid of bottomHalf) {
+    // Skip teams that are already full (can happen with small N where
+    // the snake phase already filled some teams to capacity).
+    let safety = numTeams;
+    while (teams[cursor].players.length >= teamSize && safety-- > 0) {
+      cursor = (cursor + 1) % numTeams;
+    }
+    teams[cursor].players.push(pid);
+    cursor = (cursor + 1) % numTeams;
+  }
+
+  // Anything past totalSlots is a spectator (extras that don't
+  // evenly divide). The snake never sees these, so they sit out.
+  const spectators = ranked.slice(totalSlots);
 
   return { teams, spectators };
 }

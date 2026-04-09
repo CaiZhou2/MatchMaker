@@ -473,3 +473,147 @@ test('placeholder: KR-ref winner stays unresolved while the group gate is closed
 
   assert.equal(h.Storage._helpers.findKnockoutWinner(ev, 1, 1), null);
 });
+
+/* ──────────────────────────────────────────────────────────
+ * Win-rate trend (cumulative WR over time)
+ * ────────────────────────────────────────────────────────── */
+
+// Helper: append a synthetic history entry that just has a delta map
+// for the given player (skipping the full plan/results scaffolding —
+// getWinRateTrend only reads ev.attendees + ev.delta + ev.date).
+function pushTrendEntry(h, date, playerId, deltaWDL) {
+  const d = h.Storage.load();
+  d.history.push({
+    id: 'h_' + Math.random().toString(36).slice(2, 8),
+    date,
+    attendees: [playerId],
+    delta: { [playerId]: { points: 0, ...deltaWDL, spent: 0 } },
+    teams: [],
+    plan: { format: 'round-robin', schedule: [], slotsUsed: 0, fits: true },
+    results: {},
+    nameSnapshot: {},
+  });
+  h.Storage.save();
+}
+
+test('trend: empty for player with no history', () => {
+  const h = createHarness();
+  const alice = h.Storage.addPlayer('Alice');
+  const trend = h.Storage.getWinRateTrend(alice.id);
+  assert.equal(trend.length, 0);
+});
+
+test('trend: empty for null/undefined id', () => {
+  const h = createHarness();
+  assert.equal(h.Storage.getWinRateTrend(null).length, 0);
+  assert.equal(h.Storage.getWinRateTrend(undefined).length, 0);
+});
+
+test('trend: one entry per attended event, in chronological order', () => {
+  const h = createHarness();
+  const alice = h.Storage.addPlayer('Alice');
+  pushTrendEntry(h, '2026-04-01', alice.id, { wins: 2, draws: 0, losses: 1 });
+  pushTrendEntry(h, '2026-04-08', alice.id, { wins: 1, draws: 0, losses: 2 });
+  pushTrendEntry(h, '2026-04-15', alice.id, { wins: 3, draws: 0, losses: 0 });
+
+  const trend = h.Storage.getWinRateTrend(alice.id);
+  assert.equal(trend.length, 3);
+  assert.equal(trend[0].date, '2026-04-01');
+  assert.equal(trend[1].date, '2026-04-08');
+  assert.equal(trend[2].date, '2026-04-15');
+});
+
+test('trend: cumulative WR is computed correctly across events', () => {
+  const h = createHarness();
+  const alice = h.Storage.addPlayer('Alice');
+
+  // Event 1: 2W 1L → cumulative 2/3 ≈ 0.667
+  // Event 2: 1W 2L → cumulative 3/6 = 0.5
+  // Event 3: 3W 0L → cumulative 6/9 ≈ 0.667
+  pushTrendEntry(h, '2026-04-01', alice.id, { wins: 2, draws: 0, losses: 1 });
+  pushTrendEntry(h, '2026-04-08', alice.id, { wins: 1, draws: 0, losses: 2 });
+  pushTrendEntry(h, '2026-04-15', alice.id, { wins: 3, draws: 0, losses: 0 });
+
+  const trend = h.Storage.getWinRateTrend(alice.id);
+  assert.equal(trend[0].games, 3);
+  assert.equal(trend[0].wins, 2);
+  assert.ok(Math.abs(trend[0].winRate - 2/3) < 1e-9);
+
+  assert.equal(trend[1].games, 6);
+  assert.equal(trend[1].wins, 3);
+  assert.equal(trend[1].winRate, 0.5);
+
+  assert.equal(trend[2].games, 9);
+  assert.equal(trend[2].wins, 6);
+  assert.ok(Math.abs(trend[2].winRate - 6/9) < 1e-9);
+});
+
+test('trend: draws are counted in games but not in wins', () => {
+  const h = createHarness();
+  const alice = h.Storage.addPlayer('Alice');
+  // 1W 2D 1L → 4 games, 1 win → WR = 0.25
+  pushTrendEntry(h, '2026-04-01', alice.id, { wins: 1, draws: 2, losses: 1 });
+  const trend = h.Storage.getWinRateTrend(alice.id);
+  assert.equal(trend[0].games, 4);
+  assert.equal(trend[0].draws, 2);
+  assert.equal(trend[0].winRate, 0.25);
+});
+
+test('trend: skips events the player did not attend', () => {
+  const h = createHarness();
+  const alice = h.Storage.addPlayer('Alice');
+  const bob = h.Storage.addPlayer('Bob');
+
+  // Bob plays alone in event 1, Alice joins in event 2
+  pushTrendEntry(h, '2026-04-01', bob.id, { wins: 1, draws: 0, losses: 0 });
+  pushTrendEntry(h, '2026-04-08', alice.id, { wins: 1, draws: 0, losses: 1 });
+
+  const aliceTrend = h.Storage.getWinRateTrend(alice.id);
+  assert.equal(aliceTrend.length, 1, 'Alice has only one entry — event 2');
+  assert.equal(aliceTrend[0].date, '2026-04-08');
+});
+
+test('trend: chronological order regardless of insertion order', () => {
+  const h = createHarness();
+  const alice = h.Storage.addPlayer('Alice');
+  // Push out of order
+  pushTrendEntry(h, '2026-04-15', alice.id, { wins: 1, draws: 0, losses: 0 });
+  pushTrendEntry(h, '2026-04-01', alice.id, { wins: 2, draws: 0, losses: 1 });
+  pushTrendEntry(h, '2026-04-08', alice.id, { wins: 0, draws: 0, losses: 2 });
+
+  const trend = h.Storage.getWinRateTrend(alice.id);
+  assert.equal(trend[0].date, '2026-04-01');
+  assert.equal(trend[1].date, '2026-04-08');
+  assert.equal(trend[2].date, '2026-04-15');
+});
+
+test('trend: handles legacy entries with no delta map (contributes 0/0/0)', () => {
+  const h = createHarness();
+  const alice = h.Storage.addPlayer('Alice');
+
+  // Manually push a legacy entry that has no delta field at all
+  const d = h.Storage.load();
+  d.history.push({
+    id: 'h_legacy',
+    date: '2026-03-01',
+    attendees: [alice.id],
+    teams: [],
+    plan: { format: 'round-robin', schedule: [], slotsUsed: 0, fits: true },
+    results: {},
+    // NOTE: no `delta` field
+  });
+  h.Storage.save();
+
+  // Then a normal entry
+  pushTrendEntry(h, '2026-04-01', alice.id, { wins: 3, draws: 0, losses: 0 });
+
+  const trend = h.Storage.getWinRateTrend(alice.id);
+  assert.equal(trend.length, 2);
+  // Legacy entry contributes nothing
+  assert.equal(trend[0].games, 0);
+  assert.equal(trend[0].winRate, 0);
+  // Normal entry brings the cumulative up to 3W
+  assert.equal(trend[1].games, 3);
+  assert.equal(trend[1].wins, 3);
+  assert.equal(trend[1].winRate, 1);
+});

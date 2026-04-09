@@ -1062,6 +1062,51 @@ input:focus, textarea:focus, select:focus {
   color: var(--text-secondary);
 }
 
+/* ─── Win-rate trend chart ─────────────────────────────────────── */
+.trend-chart {
+  margin: 4px 0 14px;
+  padding: 8px 10px 4px;
+  background: var(--card-inner-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.trend-chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.trend-line {
+  stroke: var(--primary);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.trend-dot {
+  fill: var(--primary);
+  stroke: var(--card-bg);
+  stroke-width: 1;
+}
+.trend-dot-current {
+  fill: var(--gold);
+  stroke: var(--primary-dark);
+  stroke-width: 1.5;
+}
+.trend-baseline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.trend-axis-label {
+  fill: var(--text-secondary);
+  font-size: 9px;
+  font-family: ui-monospace, "SF Mono", monospace;
+}
+.trend-summary {
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
 /* ─── Head-to-head table ───────────────────────────────────────── */
 .h2h-row {
   display: grid;
