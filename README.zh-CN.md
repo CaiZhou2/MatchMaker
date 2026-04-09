@@ -153,8 +153,7 @@ MatchMaker/
 ├── tests/              node:test 测试（JS 单元测试 + 集成测试）
 ├── LICENSE             PolyForm Noncommercial 1.0.0
 ├── README.md           英文版
-├── README.zh-CN.md     （本文件）
-└── CLAUDE.md           给 AI 助手的项目指南
+└── README.zh-CN.md     （本文件）
 ```
 
 ### 数据模型

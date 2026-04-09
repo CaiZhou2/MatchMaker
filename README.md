@@ -153,8 +153,7 @@ MatchMaker/
 ├── tests/              node:test specs (JS unit + integration tests)
 ├── LICENSE             PolyForm Noncommercial 1.0.0
 ├── README.md           (this file)
-├── README.zh-CN.md     Simplified Chinese mirror
-└── CLAUDE.md           Project guide for AI assistants
+└── README.zh-CN.md     Simplified Chinese mirror
 ```
 
 ### Data model

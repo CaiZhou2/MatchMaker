@@ -15,3 +15,6 @@ Thumbs.db
 
 # Node (in case someone adds deps later)
 node_modules/
+
+# Other
+CLAUDE.md
