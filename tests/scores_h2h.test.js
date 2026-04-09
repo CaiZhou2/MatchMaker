@@ -374,3 +374,102 @@ test('storage: group table breaks point ties by score diff', () => {
   assert.equal(table[1].id, 't1');
   assert.equal(table[2].id, 't2');
 });
+
+/* ──────────────────────────────────────────────────────────
+ * Group-completion gate for placeholder resolution
+ *
+ * Regression test for the bug where knockout slots showed concrete
+ * teams before the group stage was even finished. The placeholder
+ * resolver used to compute a "current standings" group table from
+ * whatever results existed and return the team currently sorted
+ * first — meaning at the start of an event (with 0 results recorded)
+ * the knockout match would already display "Team 1 vs Team 2".
+ * ────────────────────────────────────────────────────────── */
+
+function buildGroupKnockoutEvent() {
+  // 3 teams in one group, top 2 advance to a knockout final.
+  return {
+    teams: [
+      { id: 't0', name: 'T0', players: [] },
+      { id: 't1', name: 'T1', players: [] },
+      { id: 't2', name: 'T2', players: [] },
+    ],
+    plan: {
+      format: 'groups-knockout',
+      group_sizes: [3],
+      schedule: [
+        { phase: 'group', round: 1, slot: 1, matches: [
+          { court: 1, team_a: 0, team_b: 1, kind: 'ranked' },
+        ]},
+        { phase: 'group', round: 2, slot: 2, matches: [
+          { court: 1, team_a: 0, team_b: 2, kind: 'ranked' },
+        ]},
+        { phase: 'group', round: 3, slot: 3, matches: [
+          { court: 1, team_a: 1, team_b: 2, kind: 'ranked' },
+        ]},
+        { phase: 'knockout', round: 'KR1', slot: 4, matches: [
+          { court: 1, team_a: 'G1-1', team_b: 'G1-2', kind: 'ranked' },
+        ]},
+      ],
+    },
+    results: {},
+  };
+}
+
+test('placeholder: G-ref does NOT resolve before any group match is recorded', () => {
+  const h = createHarness();
+  const ev = buildGroupKnockoutEvent();
+
+  // 0 results recorded → group is not complete → placeholder must
+  // not resolve. Otherwise the renderer would show "Team 1" / "Team 2"
+  // for the knockout final before any group match was actually played.
+  assert.equal(h.Storage._helpers.isGroupComplete(ev, 0), false);
+  assert.equal(h.Storage._helpers.resolvePlaceholder('G1-1', ev), null);
+  assert.equal(h.Storage._helpers.resolvePlaceholder('G1-2', ev), null);
+});
+
+test('placeholder: G-ref does NOT resolve when group stage is partially complete', () => {
+  const h = createHarness();
+  const ev = buildGroupKnockoutEvent();
+
+  // Record only 2 of 3 group matches. The standings table COULD be
+  // computed (T0 has 6 pts, T1 has 0, T2 has 0) but the result is
+  // misleading because the T1 vs T2 match might still flip the
+  // ranking. The resolver must hold off.
+  ev.results['0:1'] = { result: 'A' };  // T0 beats T1
+  ev.results['1:1'] = { result: 'A' };  // T0 beats T2
+  // ev.results['2:1'] not yet recorded
+
+  assert.equal(h.Storage._helpers.isGroupComplete(ev, 0), false);
+  assert.equal(h.Storage._helpers.resolvePlaceholder('G1-1', ev), null);
+  assert.equal(h.Storage._helpers.resolvePlaceholder('G1-2', ev), null);
+});
+
+test('placeholder: G-ref DOES resolve once all group matches are recorded', () => {
+  const h = createHarness();
+  const ev = buildGroupKnockoutEvent();
+
+  // All three group matches recorded — gate opens.
+  ev.results['0:1'] = { result: 'A' };  // T0 beats T1
+  ev.results['1:1'] = { result: 'A' };  // T0 beats T2
+  ev.results['2:1'] = { result: 'A' };  // T1 beats T2
+
+  assert.equal(h.Storage._helpers.isGroupComplete(ev, 0), true);
+  // T0: 6 pts (1st), T1: 3 pts (2nd), T2: 0 pts (3rd)
+  assert.equal(h.Storage._helpers.resolvePlaceholder('G1-1', ev).id, 't0');
+  assert.equal(h.Storage._helpers.resolvePlaceholder('G1-2', ev).id, 't1');
+});
+
+test('placeholder: KR-ref winner stays unresolved while the group gate is closed', () => {
+  // Subtle chained case: the user records the knockout match early
+  // (the UI lets them record results in any order). findKnockoutWinner
+  // sees a result and tries to resolveTeam(match.team_a) which is
+  // "G1-1". The G-gate must still apply, so the chained resolution
+  // returns null until the group stage is finished.
+  const h = createHarness();
+  const ev = buildGroupKnockoutEvent();
+
+  ev.results['3:1'] = { result: 'A' };
+
+  assert.equal(h.Storage._helpers.findKnockoutWinner(ev, 1, 1), null);
+});

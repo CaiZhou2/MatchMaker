@@ -539,6 +539,13 @@ function resolvePlaceholder(ref, ev) {
     if (!m) return null;
     const groupIdx = +m[1] - 1;
     const rank = +m[2] - 1;
+    // Don't resolve until ALL of this group's matches have been
+    // recorded — otherwise computeGroupTable would return a partial
+    // standings table where unplayed teams are tied at 0 pts and the
+    // "winner" is whichever happens to sort first by team index.
+    // That was the user-reported bug: knockout slots showing concrete
+    // teams before the group stage was complete.
+    if (!isGroupComplete(ev, groupIdx)) return null;
     const groupTable = computeGroupTable(ev, groupIdx);
     return groupTable[rank] || null;
   }
@@ -551,6 +558,35 @@ function resolvePlaceholder(ref, ev) {
     return findKnockoutWinner(ev, round, matchNum);
   }
   return null;
+}
+
+// True iff every group-stage match belonging to the given group has
+// a recorded result. Used by resolvePlaceholder to gate the
+// "G{n}-{rank}" branch — we only know who advances from a group
+// once every match in that group has been played.
+function isGroupComplete(ev, groupIdx) {
+  if (!ev.plan || !Array.isArray(ev.plan.schedule)) return false;
+  const sizes = ev.plan.group_sizes || [];
+  let start = 0;
+  for (let i = 0; i < groupIdx; i++) start += sizes[i];
+  const size = sizes[groupIdx] || 0;
+  if (size === 0) return false;
+  // Build a set of team indices belonging to this group
+  const teamIndices = new Set();
+  for (let i = 0; i < size; i++) teamIndices.add(start + i);
+
+  for (let slotIdx = 0; slotIdx < ev.plan.schedule.length; slotIdx++) {
+    const slot = ev.plan.schedule[slotIdx];
+    if (slot.phase !== 'group') continue;
+    for (const match of slot.matches) {
+      if (match.kind !== 'ranked') continue;
+      if (typeof match.team_a !== 'number' || typeof match.team_b !== 'number') continue;
+      if (!teamIndices.has(match.team_a) || !teamIndices.has(match.team_b)) continue;
+      const key = `${slotIdx}:${match.court}`;
+      if (getMatchResult(ev.results?.[key]) == null) return false;
+    }
+  }
+  return true;
 }
 
 function computeGroupTable(ev, groupIdx) {
@@ -651,6 +687,7 @@ Storage._helpers = {
   resolveTeam,
   resolvePlaceholder,
   computeGroupTable,
+  isGroupComplete,
   findKnockoutWinner,
   getMatchResult,
   getMatchScores,
