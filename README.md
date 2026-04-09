@@ -2,6 +2,8 @@
 
 **Languages**: English · [简体中文](README.zh-CN.md)
 
+🔗 **Live app**: **[CaiZhou2.github.io/MatchMaker](https://CaiZhou2.github.io/MatchMaker/)** — open this URL on your phone, add to home screen, done.
+
 A mobile-friendly Progressive Web App for planning weekly team tournaments. MatchMaker keeps a persistent roster of players, drafts balanced teams based on historical win rate, auto-picks a sensible cup format, runs the tournament, and tracks points and expenses across weeks — all in your phone's browser, no install or account required.
 
 > **Non-commercial use only.** See [LICENSE](LICENSE).
@@ -46,16 +48,21 @@ Any static server works (`python3 -m http.server`, `npx serve`, nginx, caddy, Gi
 
 MatchMaker is a Progressive Web App, so you can "install" it from any modern mobile browser and use it like a native app — offline, fullscreen, with an icon on your home screen.
 
-**First, host the `web/` folder somewhere your phone can reach.** Easiest options:
+**Easiest option — use the live deployment:** open **<https://CaiZhou2.github.io/MatchMaker/>** on your phone and skip straight to the install step below. No hosting needed.
+
+<details>
+<summary><strong>Or self-host your own copy</strong> (alternative — for forks / custom branding / private use)</summary>
 
 | Option | Cost | Notes |
 | --- | --- | --- |
-| **GitHub Pages** | Free | Push `web/` to a repo, enable Pages — gets you HTTPS automatically |
+| **GitHub Pages** | Free | Fork this repo, enable Pages with Source = "GitHub Actions" — the bundled `.github/workflows/deploy.yml` handles the rest |
+| **Cloudflare Pages** | Free | Connect your fork, output dir `web` |
 | **Netlify / Vercel (drop)** | Free | Drag-and-drop `web/` onto their dashboard |
 | **Self-host (LAN)** | Free | `python3 -m http.server` on a laptop on the same Wi-Fi |
-| **Cloudflare Pages** | Free | Similar to Netlify |
 
 > ⚠️ PWAs require **HTTPS** (except on `localhost`). GitHub Pages / Netlify / Vercel all provide HTTPS automatically.
+
+</details>
 
 **Then install on your phone:**
 

@@ -2,6 +2,8 @@
 
 **Languages**: [English](README.md) · 简体中文
 
+🔗 **在线访问**：**[CaiZhou2.github.io/MatchMaker](https://CaiZhou2.github.io/MatchMaker/)** —— 直接在手机浏览器打开，添加到主屏幕，开始用。
+
 一个手机友好的 Progressive Web App，用于安排每周的团队杯赛。MatchMaker 维护持久化的选手名单，根据历史胜率自动抽取平衡的队伍，智能推荐合适的赛制，运行比赛，并跨周记录积分和消费 —— 完全在手机浏览器里运行，无需安装，无需账号。
 
 > **仅限非商业用途。** 详见 [LICENSE](LICENSE)。
@@ -46,16 +48,21 @@ python3 -m http.server 8080
 
 MatchMaker 是一个渐进式 Web 应用（PWA），可以从任何现代手机浏览器"安装"到主屏幕，像原生应用一样使用 —— 离线、全屏、带图标。
 
-**首先，把 `web/` 文件夹部署到手机可以访问的地方。** 最简单的方式：
+**最简单的方式 —— 直接用线上版本：** 在手机浏览器打开 **<https://CaiZhou2.github.io/MatchMaker/>**，然后跳到下面的安装步骤。不需要自己部署。
+
+<details>
+<summary><strong>或者自己部署一份</strong>（fork、改名、私有用途等场景）</summary>
 
 | 方案 | 费用 | 说明 |
 | --- | --- | --- |
-| **GitHub Pages** | 免费 | 把 `web/` 推到仓库，启用 Pages，自动提供 HTTPS |
+| **GitHub Pages** | 免费 | Fork 仓库，启用 Pages 并选 Source = "GitHub Actions"，自带的 `.github/workflows/deploy.yml` 自动处理剩下的事 |
+| **Cloudflare Pages** | 免费 | 连接你的 fork，输出目录填 `web` |
 | **Netlify / Vercel (拖拽)** | 免费 | 直接把 `web/` 拖到他们的网页控制台 |
 | **本地自建 (局域网)** | 免费 | 在笔记本上跑 `python3 -m http.server`，手机连同一个 Wi-Fi |
-| **Cloudflare Pages** | 免费 | 类似 Netlify |
 
 > ⚠️ PWA 需要 **HTTPS**（`localhost` 除外）。GitHub Pages / Netlify / Vercel 都自动提供 HTTPS。
+
+</details>
 
 **然后在手机上安装：**
 

@@ -2,9 +2,11 @@
 
 **Languages**: English · [简体中文](ORGANIZER_GUIDE.zh-CN.md)
 
+🔗 **App URL**: **<https://CaiZhou2.github.io/MatchMaker/>**
+
 You're running a weekly tournament and someone shared MatchMaker with you. This guide gets you from zero to "running my first event" in about 10 minutes — no coding, no accounts.
 
-> **TL;DR**: Open the URL on your phone → Add to Home Screen → start your first event. **Always export a backup after each event.** That's it.
+> **TL;DR**: Open the URL above on your phone → Add to Home Screen → start your first event. **Always export a backup after each event.** That's it.
 
 ---
 
