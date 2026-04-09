@@ -1412,6 +1412,106 @@ async function handleCopyScheduleFromTournament() {
   alert(ok ? t('copy.success') : t('copy.failure'));
 }
 
+/* ─── Bulk roster paste (e.g. WeChat 接龙) ──────────────────── */
+//
+// Parses a numbered list out of a free-form roster message and
+// returns the names in order. Designed for the WeChat group sign-up
+// format the organizer typically receives:
+//
+//     #Group Note
+//     周五5-8pm，2场，16人
+//
+//     1. 张三
+//     2. 李四
+//     ...
+//     16. 王五
+//
+// Tolerates:
+//   - Real newlines (copy from WeChat) AND literal <br/> tags (copy
+//     from a webview that renders the message as HTML).
+//   - Different number-prefix separators: "1." / "1、" / "1)" / "1:"
+//   - Header / commentary lines (skipped — must start with a digit
+//     followed by a separator)
+//   - Whitespace within names ("Player Name") — preserved but
+//     collapsed to single spaces
+//   - CJK characters in names
+//   - Empty entries like "5. " — silently dropped
+function parseBulkRoster(text) {
+  if (typeof text !== 'string' || !text) return [];
+  // Normalize line breaks: HTML <br>, <br/>, <br /> all become \n
+  const normalized = text
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/\r\n?/g, '\n');
+
+  const out = [];
+  for (const rawLine of normalized.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    // Match "<digits><separator><whitespace?><name>"
+    // Separators: . ) 、 ：:
+    const m = line.match(/^\d{1,3}\s*[.\u3001\u3002):：]\s*(.+)$/);
+    if (!m) continue;
+    const name = m[1].trim().replace(/\s+/g, ' ');
+    if (name) out.push(name);
+  }
+  return out;
+}
+
+// Adds the parsed names to the player database, deduping
+// case-INsensitively against both the existing roster AND earlier
+// names within the same paste. Returns counts so the caller can
+// surface a confirmation message.
+//
+// Why case-insensitive? Sign-up messages frequently have wonky
+// casing (e.g. "Alice" vs "alice" vs "ALICE") and they should
+// obviously map to the same person.
+// Storage.addPlayer() does exact-string dedup which we don't want
+// to relax (other call sites depend on it), so we filter here
+// before calling it.
+function bulkAddPlayers(text) {
+  const names = parseBulkRoster(text);
+  const seen = new Set(
+    Storage.getAllPlayers().map(p => p.name.toLowerCase())
+  );
+  let added = 0;
+  let skipped = 0;
+  for (const name of names) {
+    const lower = name.toLowerCase();
+    if (seen.has(lower)) {
+      skipped++;
+      continue;
+    }
+    if (Storage.addPlayer(name)) {
+      added++;
+      seen.add(lower);
+    } else {
+      // Storage.addPlayer rejects empty/dup; treat as skipped
+      skipped++;
+    }
+  }
+  return { added, skipped, total: names.length };
+}
+
+function handleBulkAdd() {
+  const ta = document.getElementById('bulk-add-input');
+  const text = ta.value;
+  if (!text || !text.trim()) {
+    alert(t('bulk_add.empty_input'));
+    return;
+  }
+  const { added, skipped, total } = bulkAddPlayers(text);
+  if (total === 0) {
+    alert(t('bulk_add.no_names'));
+    return;
+  }
+  alert(t('bulk_add.result', { added, skipped }));
+  ta.value = '';
+  // Collapse the <details> after a successful add and re-render
+  const det = document.getElementById('bulk-add-details');
+  if (det) det.open = false;
+  renderDB();
+}
+
 /* ─── Import / Export ───────────────────────────────────────── */
 
 // Builds the standard backup filename ("matchmaker-backup-2026-04-09.json")
@@ -1594,6 +1694,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-select-mode').onclick = toggleDbSelectMode;
   document.getElementById('db-select-all-cb').onclick = (e) => handleDbSelectAll(e.target.checked);
   document.getElementById('btn-delete-selected').onclick = handleDeleteSelected;
+
+  // DB bulk paste (WeChat group sign-up)
+  document.getElementById('btn-bulk-add-submit').onclick = handleBulkAdd;
 
   // Setup
   document.getElementById('btn-form-teams').onclick = generateTeams;

@@ -380,6 +380,47 @@ input:focus, textarea:focus, select:focus {
   margin-left: 8px;
 }
 
+/* ─── Bulk paste (WeChat group sign-up) ────────────────────────── */
+.bulk-add {
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--card-inner-bg);
+}
+.bulk-add summary {
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--primary);
+  padding: 4px 0;
+  list-style: none;
+}
+.bulk-add summary::-webkit-details-marker { display: none; }
+.bulk-add summary::before {
+  content: '▶';
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 0.7rem;
+  transition: transform 0.15s;
+}
+.bulk-add[open] summary::before {
+  transform: rotate(90deg);
+}
+.bulk-add textarea {
+  width: 100%;
+  margin-top: 8px;
+  resize: vertical;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85rem;
+}
+.bulk-add .hint {
+  margin: 4px 0 8px;
+}
+.bulk-add .btn-small {
+  width: 100%;
+}
+
 /* ─── DB select bar ─────────────────────────────────────────────── */
 .db-select-bar {
   display: flex;

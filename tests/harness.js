@@ -113,6 +113,7 @@ function createHarness(opts = {}) {
     savedLang = null,         // pre-seeded localStorage['matchmaker-lang']
     storageData = null,       // pre-seeded localStorage['matchmaker-data-v1']
     withIdb = false,          // attach a fake IndexedDB to the sandbox
+    withApp = false,          // also load web/app.js into the sandbox
   } = opts;
 
   // In-memory localStorage
@@ -138,14 +139,20 @@ function createHarness(opts = {}) {
     },
     navigator: {
       language,
-      serviceWorker: null,
+      // serviceWorker is intentionally NOT defined so app.js's
+      // setupServiceWorker() sees `'serviceWorker' in navigator === false`
+      // and bails out cleanly instead of trying to call .register()
     },
-    window: {},
-    // Minimal document so I18N.init() doesn't blow up when called from tests
+    window: { matchMedia: () => ({ matches: false }) },
+    // Minimal document — enough that i18n.init() and app.js's top-level
+    // applyTheme() / setupServiceWorker() calls don't crash. Functions
+    // that look up real elements just resolve to null, which app.js
+    // handles via `if (el) ...` guards everywhere.
     document: {
       addEventListener: () => {},
       querySelectorAll: () => [],
-      documentElement: {},
+      getElementById: () => null,
+      documentElement: { dataset: {} },
     },
   };
 
@@ -167,6 +174,14 @@ function createHarness(opts = {}) {
   load('i18n.js');
   load('storage.js');
   load('scheduler.js');
+  if (withApp) {
+    // app.js has top-level code that touches the DOM (applyTheme,
+    // setupServiceWorker). With the minimal shim those calls succeed,
+    // but if they ever throw the function declarations are still
+    // hoisted to the context's global scope BEFORE the throw, so
+    // parseBulkRoster / bulkAddPlayers etc. are still callable.
+    try { load('app.js'); } catch (e) { /* swallow DOM-touch errors */ }
+  }
 
   // `const` top-level declarations in a vm script live in a hidden lexical
   // scope and are not exposed as properties of the context object.
@@ -193,6 +208,9 @@ function createHarness(opts = {}) {
     get planRandomFairFallback() { return ctx.planRandomFairFallback; },
     get recommendFormatOrFallback() { return ctx.recommendFormatOrFallback; },
     get playerWinRate() { return ctx.playerWinRate; },
+    // app.js exports (function declarations attach to globalThis)
+    get parseBulkRoster() { return ctx.parseBulkRoster; },
+    get bulkAddPlayers() { return ctx.bulkAddPlayers; },
     // Run arbitrary code in the sandbox (useful for smoke tests)
     run(code) { return vm.runInContext(code, ctx); },
   };
