@@ -539,8 +539,22 @@ function planByMode(mode, opts) {
   const { teams, attendeeIds, playersMap, teamSize, teamsPerMatch,
           numCourts, matchDuration, totalTime } = opts;
   switch (mode) {
-    case 'auto':
-      return recommendFormat(teams, numCourts, matchDuration, totalTime);
+    case 'auto': {
+      // Auto's purpose is "always give the user *something*" — so it
+      // tries cup formats first, and if neither fits the time/courts
+      // budget it falls all the way back to friendly mode (which is
+      // almost always feasible: 1 slot + enough players for a single
+      // match is enough). Only if even friendly fails do we surface
+      // the original cup-plan reason as the failure.
+      const cupPlan = recommendFormat(teams, numCourts, matchDuration, totalTime);
+      if (cupPlan.fits) return cupPlan;
+      const friendly = planFriendly({
+        attendeeIds, playersMap, teamSize, teamsPerMatch,
+        numCourts, matchDuration, totalTime,
+      });
+      if (friendly.fits) return friendly;
+      return cupPlan;
+    }
     case 'round-robin':
       return planRoundRobin(teams, numCourts, matchDuration, totalTime);
     case 'groups-knockout':

@@ -289,6 +289,59 @@ test('planByMode: auto delegates to recommendFormat', () => {
   assert.equal(plan.format, 'groups-knockout');
 });
 
+test('planByMode: auto falls back to friendly when no cup format fits', () => {
+  // The whole point of auto: never leave the user empty-handed.
+  // If neither groups+knockout nor round-robin can fit in the
+  // time/courts budget, auto should silently fall through to the
+  // friendly scheduler (which is almost always feasible) rather
+  // than reporting infeasibility.
+  const h = createHarness();
+  const { map, ids } = buildPlayers(h, 8);
+  const formed = h.formBalancedTeams(ids, map, 2);
+
+  // Tight budget: 1 court, 2 slots → 2 matches max. Round-robin
+  // for 4 fixed teams needs 6 matches → infeasible. Auto must NOT
+  // give up — it should return a friendly plan.
+  const plan = h.planByMode('auto', {
+    teams: formed.teams,
+    attendeeIds: ids,
+    playersMap: map,
+    teamSize: 2,
+    teamsPerMatch: 2,
+    numCourts: 1,
+    matchDuration: 10,
+    totalTime: 20,
+  });
+  assert.equal(plan.fits, true, 'auto should not give up — friendly is always reachable');
+  assert.equal(plan.format, 'friendly');
+  // Friendly plans bring their own per-match teams
+  assert.ok(Array.isArray(plan.teams) && plan.teams.length > 0);
+  // Every match in the schedule must be friendly (no ranked stragglers)
+  plan.schedule.forEach(slot => {
+    slot.matches.forEach(m => assert.equal(m.kind, 'friendly'));
+  });
+});
+
+test('planByMode: auto reports cup-plan reason when even friendly is infeasible', () => {
+  // Edge case: 3 attendees, can't form a 4-player match for friendly
+  // either. In that case auto should surface the original cup-plan
+  // failure reason rather than a misleading "friendly failed" one.
+  const h = createHarness();
+  const { map, ids } = buildPlayers(h, 3);
+  const formed = h.formBalancedTeams(ids, map, 2);
+  const plan = h.planByMode('auto', {
+    teams: formed.teams,
+    attendeeIds: ids,
+    playersMap: map,
+    teamSize: 2,
+    teamsPerMatch: 2,
+    numCourts: 1,
+    matchDuration: 10,
+    totalTime: 60,
+  });
+  assert.equal(plan.fits, false);
+});
+
 test('planByMode: round-robin uses planRoundRobin', () => {
   const h = createHarness();
   const { map, ids } = buildPlayers(h, 8);

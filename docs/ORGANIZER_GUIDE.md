@@ -16,7 +16,7 @@ MatchMaker is a small web app that lives in your phone's browser (no app store, 
 
 1. **Tracks your players** with running points and win-rate stats across weeks.
 2. **Drafts balanced teams** automatically based on each player's win rate.
-3. **Picks a tournament format** for the time and courts you have (groups + knockout, round-robin, or random pairing).
+3. **Picks a tournament format** for the time and courts you have — you can let the app auto-choose, or pick from groups+knockout / round-robin / single elimination / friendly (no points).
 4. **Records match results** as you play, then commits everyone's points + costs in one tap at the end.
 
 All data lives on **your phone only**. Nothing is uploaded to a server, no other organizer can see it.
@@ -68,21 +68,30 @@ You only need to do this once. New players added later just get added on top.
 
 1. Home → **Start this week's event**.
 2. **Tick the people who showed up today.** The count appears at the top.
-3. Set the four parameters:
+3. Set the parameters:
    - **Players per team** — usually 2 for doubles, 1 for singles
    - **Courts** — how many courts you have
    - **Match duration (min)** — typical badminton match: 15
    - **Total time (min)** — how long the venue is booked for
+   - **Tournament mode** — pick one of:
+     - **Auto (recommended)** — let the app pick for you. It tries groups + knockout first, then round-robin, then friendly mode if neither fits the time budget. Always finds *something* you can play.
+     - **Groups + Knockout** — explicit group stage followed by a knockout bracket. Needs at least 6 teams to form 2 groups.
+     - **Round-robin only** — every team plays every other team once.
+     - **Single elimination** — straight knockout bracket. **Requires the team count to be a power of 2** (2 / 4 / 8 / 16 / 32). If your numbers don't fit, the app will tell you to switch modes.
+     - **Friendly only (no points)** — no fixed weekly teams. Teams are re-formed every match by win rate so everyone plays balanced matches, but **nothing counts toward the leaderboard**. Good for casual sessions / mixed-skill warm-ups / "we just want to play" days.
 4. **This week's expense** — the venue cost in your local currency. The app splits it equally across attendees automatically when you finish the event.
 5. Tap **Generate teams**.
 
+> ⚠️ The four explicit modes (everything except Auto) **don't silently fall back**. If your chosen mode can't fit the current attendees + time + courts budget, the app alerts you and stays on the setup view — you have to either change the mode or change a parameter. Auto is the only mode that's guaranteed to find something playable.
+
 ### What you'll see
 
-- **Teams** — the auto-generated lineup. The 👑 marks the captain (highest win rate per team). Each team gets one captain plus randomly distributed other players, so the teams are roughly balanced in skill.
-- **Recommended format** — the app picks groups+knockout for ≥4 teams with enough time, round-robin for fewer teams or tighter time, and a "random fair" fallback if neither cup format fits.
-- **🔄 Re-randomize** — roll the captains again
-- **🔀 Manual swap** — tap two players to swap them between teams
-- **📋 Copy schedule** — copies the schedule as plain text. Paste into your group chat (WeChat, Telegram, etc.) so everyone knows what's happening.
+- **Teams** — the auto-generated lineup. The 👑 marks the captain (highest win rate per team). Each team gets one captain plus randomly distributed other players, so the teams are roughly balanced in skill. *(Friendly mode is different — see the friendly notice.)*
+- **Friendly mode notice** — if you picked Friendly (or Auto fell back to it), you'll see a banner explaining that teams change every match and results don't count toward the leaderboard. The display shows the per-slot match preview instead of static team cards.
+- **Format preview** — the format and stats (X matches · Y slots · ~Z minutes) the app will run with the current settings.
+- **🔄 Re-randomize** — roll the draft again (or re-randomise the friendly cohorts)
+- **🔀 Manual swap** — tap two players to swap them between teams (fixed-team modes only)
+- **📋 Copy schedule** — copies the schedule as plain text. Paste into your group chat so everyone knows what's happening.
 
 When you're happy with the lineup, tap **Start tournament**.
 
@@ -185,7 +194,11 @@ If you don't see the banner but think there should be a new version: close the a
 - Currently the only way is: export → edit the JSON file by hand → import. The app doesn't have a built-in rename or merge yet.
 
 **The tournament won't fit in my time budget.**
-- The app will automatically fall back to "random pairing" mode when the cup format doesn't fit. You'll see a banner explaining the switch. If even that doesn't work, the only options are: more time, more courts, fewer attendees, or shorter matches.
+- If you're in **Auto** mode, the app falls back automatically (groups+knockout → round-robin → friendly mode). You'll see a banner explaining the switch.
+- If you picked an **explicit** mode (groups+knockout / round-robin / single elimination / friendly), the app will alert you with the specific reason and refuse to proceed. Your options: switch to a different mode (Auto is the easiest fix), add time, add courts, or change attendees.
+
+**Single elimination says my team count isn't a power of 2.**
+- That mode only accepts 2 / 4 / 8 / 16 / 32 teams to keep the bracket clean. Either switch to Groups+Knockout (handles any team count), or add/remove an attendee to land on a power of 2.
 
 ---
 

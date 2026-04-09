@@ -49,6 +49,12 @@ const ui = {
   detailPlayerId: null,   // currently-viewed player on the detail page
   detailFrom: 'db',       // 'db' | 'search' — where to return on back
   searchQuery: '',        // current text in the search input
+  chosenMode: 'auto',     // user's selection from the tournament-mode dropdown
+  // True when the active plan uses per-match teams (friendly /
+  // random-fair). The teams view enters its "fallback preview"
+  // rendering path when this is set, and the notice text branches
+  // on chosenMode to distinguish "user picked friendly" from
+  // "auto fell back to friendly".
 };
 
 /* ─── Small helpers ─────────────────────────────────────────── */
@@ -445,13 +451,11 @@ function renderHistory() {
     } else {
       fmt = t('teams.format.round_robin');
     }
-    // For friendly events all matches are kind='friendly' — count those
-    // instead, otherwise the "X/Y matches" stat shows 0/0.
-    const isFriendly = planFormat === 'friendly';
+    // Count every playable match (excludes the eliminated-team
+    // free-court placeholder rows). Works uniformly across ranked
+    // tournament events and friendly-mode events.
     const totalMatches = h.plan?.schedule.reduce(
-      (s, slot) => s + slot.matches.filter(m =>
-        isFriendly ? m.kind === 'friendly' : m.kind === 'ranked'
-      ).length, 0
+      (s, slot) => s + slot.matches.filter(isPlayableMatch).length, 0
     ) || 0;
     const rankedMatches = totalMatches;
     const completedMatches = Object.values(h.results || {})
@@ -623,20 +627,27 @@ function renderTeams() {
   const teamSize = parseInt(document.getElementById('team-size').value, 10) || 2;
   const display = document.getElementById('teams-display');
 
-  // Reshuffle / Manual-swap controls only make sense for fixed cup teams.
-  // The fallback random-fair mode generates per-match teams that change
-  // every slot, so swapping is meaningless there.
+  // Manual-swap doesn't apply in fallback mode (per-match teams),
+  // but reshuffle DOES — it re-randomises the cohort grouping so
+  // the user can get a different set of pairings.
   const swapBtn = document.getElementById('btn-swap-mode');
   const reshuffleBtn = document.getElementById('btn-reshuffle');
   if (ui.fallbackMode) {
     swapBtn.classList.add('hidden');
-    reshuffleBtn.classList.add('hidden');
+    reshuffleBtn.classList.remove('hidden');
 
-    document.getElementById('teams-hint').textContent =
-      t('teams.fallback.notice');
+    // The notice differs based on WHY we're in fallback mode:
+    //   - User explicitly picked friendly: a friendly-mode notice
+    //   - Auto mode silently fell back to friendly because the cup
+    //     formats wouldn't fit: the original "auto fallback" notice
+    //     (now relabelled to make the auto framing explicit)
+    const noticeKey = ui.chosenMode === 'friendly'
+      ? 'teams.notice.friendly_explicit'
+      : 'teams.notice.auto_fallback';
+    document.getElementById('teams-hint').textContent = t(noticeKey);
 
-    // In fallback mode the teams display becomes a per-slot match preview
-    // (rather than a static team-cards list).
+    // In fallback mode the teams display becomes a per-slot match
+    // preview rather than static team cards.
     display.innerHTML = renderFallbackPreview(ui.pendingPlan);
     renderFormatPreview();
     return;
@@ -769,13 +780,11 @@ function renderFormatPreview() {
 
   const d = parseInt(document.getElementById('match-duration').value, 10) || 15;
   const totalMin = plan.slotsUsed * d;
-  // Friendly mode has no ranked matches, so count all matches instead.
-  const isFriendly = plan.format === 'friendly';
+  // Count playable matches uniformly (excludes free-court placeholders)
   const matchCount = plan.schedule.reduce(
-    (s, slot) => s + slot.matches.filter(m =>
-      isFriendly ? m.kind === 'friendly' : m.kind === 'ranked'
-    ).length, 0);
+    (s, slot) => s + slot.matches.filter(isPlayableMatch).length, 0);
 
+  const isFriendly = plan.format === 'friendly';
   const statsKey = isFriendly ? 'teams.format.stats_friendly' : 'teams.format.stats';
   preview.innerHTML = `
     <div class="preview-title">${escapeHtml(t('teams.format.recommended'))}</div>
@@ -806,8 +815,13 @@ function translateFormatReason(reason) {
 // currently-selected mode. Called from generateTeams (initial) and
 // from manual swap / re-shuffle actions in the teams view (so the
 // schedule preview reflects the new team order).
+//
+// Also calls syncPendingTeamsFromPlan() so that if the result has
+// per-match teams (friendly mode, or auto falling back to friendly),
+// ui.pendingTeams gets replaced with them and ui.fallbackMode is set.
+// Callers don't need to do this themselves.
 function planPendingTournament() {
-  const mode = document.getElementById('tournament-mode').value || 'auto';
+  const mode = ui.chosenMode || 'auto';
   const numCourts = parseInt(document.getElementById('num-courts').value, 10) || 2;
   const matchDuration = parseInt(document.getElementById('match-duration').value, 10) || 15;
   const totalTime = parseInt(document.getElementById('total-time').value, 10) || 180;
@@ -826,6 +840,27 @@ function planPendingTournament() {
     matchDuration,
     totalTime,
   });
+  syncPendingTeamsFromPlan();
+}
+
+// After planByMode runs, if the resulting plan brings its own
+// per-match teams (friendly / random-fair), copy them into
+// ui.pendingTeams (with localised labels) and set ui.fallbackMode so
+// the teams view enters the per-slot match-preview rendering path.
+// For non-fallback plans this is a no-op except for clearing
+// fallbackMode.
+function syncPendingTeamsFromPlan() {
+  ui.fallbackMode = false;
+  if (!ui.pendingPlan) return;
+  const fmt = ui.pendingPlan.format;
+  const isFallback = (fmt === 'friendly' || fmt === 'random-fair');
+  if (isFallback && Array.isArray(ui.pendingPlan.teams)) {
+    ui.pendingPlan.teams.forEach((team, i) => {
+      team.name = t('team.default.name', { n: i + 1 });
+    });
+    ui.pendingTeams = ui.pendingPlan.teams;
+    ui.fallbackMode = true;
+  }
 }
 
 /* ─── TOURNAMENT VIEW ───────────────────────────────────────── */
@@ -836,10 +871,14 @@ function renderTournament() {
     return;
   }
 
-  // Progress — only count entries with a recorded *result*. Score-only
-  // entries (e.g. mid-typing) don't count as completed matches.
+  // Progress — count every PLAYABLE match (one that has real team
+  // references), regardless of whether it's ranked or friendly.
+  // Excludes the eliminated-team free-court placeholder rows whose
+  // team_a/team_b are null.
+  // `done` counts entries with a recorded result; score-only entries
+  // (mid-typing, no result yet) still don't count.
   const total = ev.plan.schedule.reduce(
-    (s, slot) => s + slot.matches.filter(m => m.kind === 'ranked').length, 0);
+    (s, slot) => s + slot.matches.filter(isPlayableMatch).length, 0);
   const done = Object.values(ev.results || {})
     .filter(entry => Storage._helpers.getMatchResult(entry) != null).length;
   document.getElementById('tournament-progress').innerHTML = `
@@ -902,6 +941,15 @@ function phaseDisplay(phase) {
   return t(map[phase] || phase);
 }
 
+// True for any match that has real team references — i.e. excludes
+// the eliminated-team free-court placeholder rows reserved during the
+// knockout phase. Used by progress counters and the schedule renderer
+// to distinguish "this is something the user actually plays + records"
+// from "this is just a hint that the court is free".
+function isPlayableMatch(match) {
+  return match.team_a != null && match.team_b != null;
+}
+
 function renderMatch(match, slotIdx, ev) {
   const ta = resolveTeamDisplay(match.team_a, ev);
   const tb = resolveTeamDisplay(match.team_b, ev);
@@ -910,7 +958,21 @@ function renderMatch(match, slotIdx, ev) {
   const result = Storage._helpers.getMatchResult(entry);
   const scores = Storage._helpers.getMatchScores(entry);
 
-  if (match.kind === 'friendly') {
+  // Two distinct kinds of "friendly" match:
+  //
+  //   1. The eliminated-team free-court placeholder reserved during
+  //      the knockout phase of groups+knockout / pure-knockout. These
+  //      have no team refs (team_a/team_b are null) — render a
+  //      static "free court for eliminated teams" hint, no inputs.
+  //
+  //   2. A real match in pure-friendly mode (planFriendly): per-match
+  //      teams with concrete player IDs. These need the FULL match
+  //      UI — team labels, player names, score inputs, result buttons —
+  //      otherwise the user can't see who's playing or record results.
+  //      The "doesn't count for points" semantics happen later in
+  //      commitEvent (which skips kind!='ranked' when accumulating
+  //      deltas), not in the render layer.
+  if (match.kind === 'friendly' && (match.team_a == null || match.team_b == null)) {
     return `
       <div class="match-row friendly">
         <div class="court-label">${escapeHtml(t('tour.court.friendly', { n: match.court }))}</div>
@@ -1077,13 +1139,13 @@ function generateTeams() {
   const playersMap = {};
   Storage.getAllPlayers().forEach(p => { playersMap[p.id] = p; });
 
-  // Friendly mode skips the balanced-draft step entirely — its
-  // teams are generated per-match by planRandomFairFallback. The
-  // teams view enters its "fallback preview" rendering path that
-  // shows a slot-by-slot match list instead of static team cards.
-  let teams;
+  // Friendly mode skips the balanced-draft step entirely — its teams
+  // are generated per-match by planFriendly / planRandomFairFallback.
+  // Auto mode does form the draft up-front because cup formats might
+  // succeed; if auto then falls back to friendly, syncPendingTeamsFromPlan
+  // will swap pendingTeams over to the per-match teams.
   if (mode === 'friendly') {
-    teams = [];  // placeholder; planByMode will populate via plan.teams
+    ui.pendingTeams = [];
     ui.spectators = [];
   } else {
     const result = formBalancedTeams(attendeeIds, playersMap, teamSize);
@@ -1091,25 +1153,23 @@ function generateTeams() {
       alert(result.error);
       return;
     }
-    // Give teams localized default names ("Team 1" / "第1队" style)
     result.teams.forEach((team, i) => {
       team.name = t('team.default.name', { n: i + 1 });
     });
-    teams = result.teams;
+    ui.pendingTeams = result.teams;
     ui.spectators = result.spectators || [];
   }
 
-  ui.pendingTeams = teams;
   ui.swapMode = false;
   ui.swapSelection = null;
-  ui.fallbackMode = (mode === 'friendly');
+  ui.chosenMode = mode;
 
+  // planPendingTournament internally calls syncPendingTeamsFromPlan,
+  // which sets ui.fallbackMode and replaces pendingTeams when the
+  // result is friendly/random-fair (whether from explicit mode OR
+  // from auto's friendly fallback).
   planPendingTournament();
 
-  // Explicit mode → no auto-fallback. If the chosen mode can't fit
-  // in the current time/courts/players budget, alert and stay on
-  // the setup view. The user has to either change the mode or
-  // change the parameters.
   if (!ui.pendingPlan || !ui.pendingPlan.fits) {
     const reason = translateFormatReason(ui.pendingPlan?.reason);
     alert(t('setup.alert.mode_infeasible', {
@@ -1117,16 +1177,6 @@ function generateTeams() {
       reason,
     }));
     return;
-  }
-
-  // For friendly mode, the plan returned by planByMode includes the
-  // per-match teams in plan.teams — copy them into pendingTeams so
-  // the teams-view fallback preview can render them.
-  if (mode === 'friendly' && ui.pendingPlan.teams) {
-    ui.pendingPlan.teams.forEach((team, i) => {
-      team.name = t('team.default.name', { n: i + 1 });
-    });
-    ui.pendingTeams = ui.pendingPlan.teams;
   }
 
   showView('teams');
@@ -1205,6 +1255,33 @@ function showBackupNotice(success) {
 }
 
 function buildEventSummary(ev) {
+  // Friendly events don't accumulate any deltas (commitEvent's
+  // accumulator skips kind!='ranked'), so the per-player points-earned
+  // breakdown would be entirely zero. Show a friendly-mode summary
+  // instead — counts of who attended and how many friendly matches
+  // were played.
+  const isFriendly = ev.plan && ev.plan.format === 'friendly';
+  if (isFriendly) {
+    const matchCount = ev.plan.schedule.reduce(
+      (s, slot) => s + slot.matches.filter(isPlayableMatch).length, 0);
+    const playedCount = Object.values(ev.results || {})
+      .filter(entry => Storage._helpers.getMatchResult(entry) != null).length;
+    const playerNames = ev.attendees
+      .map(pid => Storage.getPlayer(pid)?.name || '?')
+      .sort((a, b) => a.localeCompare(b));
+    return `
+      <div class="friendly-summary">
+        <p>${escapeHtml(t('done.friendly.note'))}</p>
+        <p>${escapeHtml(t('done.friendly.stats', {
+          played: playedCount,
+          total: matchCount,
+          attendees: ev.attendees.length,
+        }))}</p>
+        <p class="friendly-attendees">${escapeHtml(playerNames.join(t('text.name.separator')))}</p>
+      </div>
+    `;
+  }
+
   const earned = {};
   ev.attendees.forEach(pid => {
     earned[pid] = { points: 0, w: 0, d: 0, l: 0 };
@@ -1401,12 +1478,10 @@ function buildScheduleText(teams, plan, opts = {}) {
     lines.push('');
   });
 
-  // Summary — friendly mode counts friendly matches; everything else
-  // counts ranked matches.
+  // Summary — count playable matches uniformly (excludes free-court
+  // placeholders).
   const matchCount = plan.schedule.reduce(
-    (s, slot) => s + slot.matches.filter(m =>
-      isFriendly ? m.kind === 'friendly' : m.kind === 'ranked'
-    ).length, 0);
+    (s, slot) => s + slot.matches.filter(isPlayableMatch).length, 0);
   const totalMin = plan.slotsUsed * dur;
   lines.push(t('text.summary', { ranked: matchCount, slots: plan.slotsUsed, min: totalMin }));
 

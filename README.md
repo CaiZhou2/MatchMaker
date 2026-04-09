@@ -18,7 +18,7 @@ A mobile-friendly Progressive Web App for planning weekly team tournaments. Matc
 
 - **Weekly cup workflow**: pick attendees → auto-form balanced teams → play → record results → commit
 - **Balanced draft**: top `N` players by win rate become captains (one per team); the rest are distributed randomly round-robin
-- **Auto format recommendation**: prefers group stage + knockout, falls back to round-robin for small fields, automatically respects time and court budgets
+- **Five tournament modes** the user picks per event: **Auto** (recommended — tries groups+knockout, then round-robin, then friendly), **Groups + Knockout**, **Round-robin only**, **Single elimination** (power-of-2 brackets with seeded pairings), **Friendly only** (random fair pairings, no points awarded)
 - **Free court during knockout**: reserves a court for eliminated teams' friendly matches so nobody sits around bored
 - **Points and win-rate leaderboards**: `Win = 3`, `Draw = 1`, `Loss = 0`
 - **Expense tracking**: split this week's total cost across attendees automatically; per-player running totals; double-confirm reset with undo-until-next-event
@@ -112,7 +112,7 @@ MatchMaker is a Progressive Web App, so you can "install" it from any modern mob
 - Captains (ranked by win rate) are marked with 👑.
 - Tap **🔄 Re-randomize** to roll again.
 - Tap **🔀 Manual adjust** to swap two players between teams.
-- A recommended format is shown (groups + knockout, or round-robin).
+- The format preview at the bottom shows what will be played: groups + knockout, round-robin, single elimination, or friendly (depending on the mode picked in setup).
 - Tap **📋 Copy schedule** to share the plan to a chat group.
 - Tap **Start tournament** to lock in.
 
@@ -181,7 +181,9 @@ Forward migrations live in `Storage._migrate()` — always additive so older sav
 - **Balanced draft**: `T = floor(N / teamSize)`; top `T` players by win rate become captains (one per team); remaining players are shuffled and round-robin into teams. Tiebreakers for the ranking: games played desc, then random.
 - **Round-robin**: Berger/circle rotation, parallelized across available courts.
 - **Groups + knockout**: tries groups of 4, then 3; advances top 2 per group; builds a power-of-two knockout bracket. Reserves one court per knockout slot for friendly matches when the round has spare capacity.
-- **Format selection**: prefer groups + knockout for `T ≥ 4`, otherwise round-robin. Falls back if the chosen plan doesn't fit the time budget.
+- **Pure single elimination**: standard tennis-style seeded bracket (`seedBracket()`) so the top seed and second seed end up on opposite halves and can only meet in the final. Requires the team count to be a power of 2 (2/4/8/16/32) — non-power-of-2 counts are explicitly rejected so the user picks a different mode rather than getting an awkward bye structure.
+- **Friendly mode** (`planFriendly`): wraps `planRandomFairFallback` and stamps every match as `kind: 'friendly'`. `commitEvent`'s accumulator skips non-ranked matches, so friendly events record results for the user's convenience but never touch points / wins / draws / losses.
+- **Mode dispatch**: a single `planByMode(mode, opts)` entry point routes to the right planner. The `auto` mode preserves the historical "smart pick" behaviour (groups+knockout → round-robin → friendly). The other four modes are explicit — if the chosen mode is infeasible, the UI alerts and refuses to proceed (no silent fallback).
 
 ## Testing
 
