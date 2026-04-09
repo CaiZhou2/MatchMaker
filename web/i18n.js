@@ -54,7 +54,7 @@ const TRANSLATIONS = {
     // ─── Home ────────────────────────────────────────────────
     'home.title': '主页',
     'home.btn.start': '开始本周比赛',
-    'home.btn.db': '📋 选手数据库',
+    'home.btn.db': '📇 选手数据库',
     'home.btn.search': '🔍 选手查询',
     'home.btn.resume': '继续未完成的比赛 (阶段: {phase}) →',
     'home.stats.players': '已注册选手',
@@ -281,7 +281,7 @@ const TRANSLATIONS = {
     // ─── Home ────────────────────────────────────────────────
     'home.title': 'Home',
     'home.btn.start': "Start this week's event",
-    'home.btn.db': '📋 Player Database',
+    'home.btn.db': '📇 Player Database',
     'home.btn.search': '🔍 Find Player',
     'home.btn.resume': 'Resume event (phase: {phase}) →',
     'home.stats.players': 'Registered players',

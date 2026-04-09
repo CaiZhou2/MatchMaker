@@ -47,7 +47,6 @@ MatchMaker is a mobile-friendly weekly tournament scheduling app. It tracks a ro
 - The teams-review view and the tournament view both have a "复制比赛安排" button that copies a human-readable plain-text rendering of the schedule to the clipboard (Clipboard API with an `execCommand` fallback for older browsers), suitable for pasting into WeChat / Telegram / etc.
 
 ## Project Structure
-- `algorithm/` — Python algorithm prototype for validation
 - `web/` — PWA frontend (HTML/CSS/JS), the actual mobile app
   - `i18n.js` — translation module (zh-CN, en-US) + auto-detect + localStorage override
   - `storage.js` — localStorage CRUD for player DB and current event (+ forward migrations)
@@ -55,7 +54,7 @@ MatchMaker is a mobile-friendly weekly tournament scheduling app. It tracks a ro
   - `app.js` — UI view router and interaction (all user-facing strings go through `t()`)
   - `index.html` / `style.css` — multi-view SPA with `data-i18n` attributes
   - `sw.js` / `manifest.json` — PWA setup
-- `tests/` — `node:test` specs for JS modules + Python `unittest` for the algorithm prototype
+- `tests/` — `node:test` specs for JS modules (storage, scheduler, i18n, fallback, IDB, scores+H2H)
   - `harness.js` — loads the browser modules inside a `vm.Context` with shimmed
     browser globals so tests can exercise the real production code (rather than
     a test-only copy). `const` bindings like `Storage` / `I18N` are bridged onto
@@ -64,7 +63,7 @@ MatchMaker is a mobile-friendly weekly tournament scheduling app. It tracks a ro
 - `LICENSE` — PolyForm Noncommercial 1.0.0
 
 ## Development Rules
-- **Do NOT install any system tools/packages without discussing with the user first.** Always ask before running `apt install`, `pip install`, `npm install`, etc. The project deliberately has zero runtime dependencies — the JS test suite uses Node's built-in `node:test` and the Python suite uses `unittest` from the stdlib.
+- **Do NOT install any system tools/packages without discussing with the user first.** Always ask before running `apt install`, `pip install`, `npm install`, etc. The project deliberately has zero runtime dependencies — the JS test suite uses Node's built-in `node:test` runner.
 - Requirements evolve iteratively. Expect the user to update requirements step-by-step. Keep the code modular to absorb changes cleanly.
 
 ## Running Tests
@@ -73,9 +72,6 @@ MatchMaker is a mobile-friendly weekly tournament scheduling app. It tracks a ro
 node --test tests/*.test.js
 # Or, from project root, let Node auto-discover test files:
 node --test
-
-# Python algorithm tests
-python3 tests/test_scheduler.py
 ```
 
 **Note**: `node --test tests/` (with a directory path) does NOT work on

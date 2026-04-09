@@ -130,8 +130,6 @@ MatchMaker is a Progressive Web App, so you can "install" it from any modern mob
 
 ```
 MatchMaker/
-├── algorithm/          Python prototype (algorithm validation)
-│   └── scheduler.py
 ├── web/                The actual app (PWA)
 │   ├── index.html      Multi-view SPA layout
 │   ├── style.css
@@ -141,7 +139,7 @@ MatchMaker/
 │   ├── app.js          View router + all UI interaction
 │   ├── manifest.json   PWA manifest
 │   └── sw.js           Service worker (offline cache)
-├── tests/              node:test specs + Python tests
+├── tests/              node:test specs (JS unit + integration tests)
 ├── LICENSE             PolyForm Noncommercial 1.0.0
 ├── README.md           (this file)
 ├── README.zh-CN.md     Simplified Chinese mirror
@@ -180,16 +178,13 @@ Forward migrations live in `Storage._migrate()` — always additive so older sav
 
 ## Testing
 
-MatchMaker uses the Node `node:test` built-in runner (Node 18+) for the web code and plain Python for the algorithm prototype — zero dependencies.
+MatchMaker uses Node's built-in `node:test` runner (Node 18+) — zero dependencies.
 
 ```bash
-# JS unit tests (storage, scheduler, i18n)
+# Run all tests
 node --test tests/*.test.js
 # (or, from the project root with no path, Node auto-discovers test files:)
 node --test
-
-# Python prototype tests
-python3 tests/test_scheduler.py
 ```
 
 See [tests/](tests/) for the specs.

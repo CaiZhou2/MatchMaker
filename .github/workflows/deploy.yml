@@ -45,13 +45,6 @@ jobs:
       - name: JS unit tests
         run: node --test tests/*.test.js
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Python algorithm tests
-        run: python3 tests/test_scheduler.py
-
   build:
     name: Build & upload artifact
     runs-on: ubuntu-latest

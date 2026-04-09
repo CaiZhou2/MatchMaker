@@ -54,25 +54,25 @@ The app is a PWA (Progressive Web App), which means it installs from a URL like 
 
 You only need to do this once. New players added later just get added on top.
 
-1. Open the app → tap **📋 选手数据库** (Player Database).
-2. Type a name, tap **添加** (Add). Repeat for everyone in your group.
+1. Open the app → tap **📇 Player Database**.
+2. Type a name, tap **Add**. Repeat for everyone in your group.
 3. The list shows each player's points, win rate, weeks played, and total spent. All zeros to start.
 
-> 💡 You don't have to add everyone right away. You can use the **快速添加** (Quick Add) field on the event setup screen to add new people the first time they show up.
+> 💡 You don't have to add everyone right away. You can use the quick-add field on the event setup screen to add new people the first time they show up.
 
 ---
 
 ## Step 3 — Run your first event (~5 min setup, then play)
 
-1. Home → **开始本周比赛** (Start this week's event).
+1. Home → **Start this week's event**.
 2. **Tick the people who showed up today.** The count appears at the top.
 3. Set the four parameters:
-   - **每队人数** (Players per team) — usually 2 for doubles, 1 for singles
-   - **场地数** (Courts) — how many courts you have
-   - **每场时长** (Match duration, minutes) — typical badminton match: 15
-   - **总时间** (Total time, minutes) — how long the venue is booked for
-4. **本周消费** (This week's expense) — the venue cost in your local currency. The app splits it equally across attendees automatically when you finish the event.
-5. Tap **生成队伍** (Generate teams).
+   - **Players per team** — usually 2 for doubles, 1 for singles
+   - **Courts** — how many courts you have
+   - **Match duration (min)** — typical badminton match: 15
+   - **Total time (min)** — how long the venue is booked for
+4. **This week's expense** — the venue cost in your local currency. The app splits it equally across attendees automatically when you finish the event.
+5. Tap **Generate teams**.
 
 ### What you'll see
 
@@ -80,9 +80,9 @@ You only need to do this once. New players added later just get added on top.
 - **Recommended format** — the app picks groups+knockout for ≥4 teams with enough time, round-robin for fewer teams or tighter time, and a "random fair" fallback if neither cup format fits.
 - **🔄 Re-randomize** — roll the captains again
 - **🔀 Manual swap** — tap two players to swap them between teams
-- **📋 复制比赛安排** — copies the schedule as plain text. Paste into your group chat (WeChat, Telegram, etc.) so everyone knows what's happening.
+- **📋 Copy schedule** — copies the schedule as plain text. Paste into your group chat (WeChat, Telegram, etc.) so everyone knows what's happening.
 
-When you're happy with the lineup, tap **开始比赛** (Start tournament).
+When you're happy with the lineup, tap **Start tournament**.
 
 ---
 
@@ -94,7 +94,7 @@ The tournament view shows every match in time-slot order. For each match:
 - Or, type the actual scores in the two number fields (e.g. `21` and `15`) — the result is auto-determined and stored alongside the scores.
 - Tapping the same result button again clears it (in case you tapped wrong).
 
-Progress bar at the top shows `done / total` matches. The **完成比赛 & 更新积分** (Finish & update points) button only appears once every match has a recorded result.
+Progress bar at the top shows `done / total` matches. The **Finish & update points** button only appears once every match has a recorded result.
 
 > 💡 Score entry is optional. If you're playing fast and just want to mark wins/losses, the three buttons are enough. Scores give you a tie-breaker for groups + nicer history detail.
 
@@ -102,19 +102,19 @@ Progress bar at the top shows `done / total` matches. The **完成比赛 & 更�
 
 ## Step 5 — Finishing the event (the most important step)
 
-Tap **完成比赛 & 更新积分** → confirm.
+Tap **Finish & update points** → confirm.
 
 The app does three things automatically:
 
 1. **Writes everyone's new points / wins / losses / spending into the database.** Once committed, this can't be un-done from the app.
-2. **Auto-downloads a backup file** named `matchmaker-backup-YYYY-MM-DD.json` to your phone's Downloads folder. You'll see a green "💾 备份已自动下载" notice on the success screen.
-3. **Offers a "📤 分享备份" button** (on phones that support it). Tap it to send the backup file to yourself via WeChat / email / AirDrop in one tap.
+2. **Auto-downloads a backup file** named `matchmaker-backup-YYYY-MM-DD.json` to your phone's Downloads folder. A green "Backup downloaded" notice appears on the success screen.
+3. **Offers a "📤 Share backup" button** (on phones that support it). Tap it to send the backup file to yourself in one tap.
 
 ### ⚠️ Read this part — it's the difference between zero data loss and crying
 
 **Always send the auto-downloaded backup somewhere safe.** The simplest workflow:
 
-- Tap **📤 分享备份** → choose **WeChat (微信)** → choose **文件传输助手 (File Transfer)**.
+- Tap **📤 Share backup** → choose your messenger of choice → send it to yourself (e.g. your own "saved messages" / "file transfer" chat in Telegram, WhatsApp, WeChat, etc.).
 - That's it. Your backup is now in the cloud, accessible from any device, free, forever.
 - Alternatively: send it to yourself via email, AirDrop to your laptop, save to iCloud Drive, etc.
 
@@ -132,19 +132,19 @@ The app does three things automatically:
 
 The home screen has three leaderboard tabs:
 
-- **积分榜** (Points) — cumulative points. Win = 3, Draw = 1, Loss = 0.
-- **胜率榜** (Win Rate) — wins ÷ total games.
-- **参与榜** (Attendance) — most weeks attended (good for "regular member of the year" type fun).
+- **Points** — cumulative points. Win = 3, Draw = 1, Loss = 0.
+- **Win Rate** — wins ÷ total games.
+- **Attendance** — most weeks attended (good for "regular member of the year" type fun).
 
-Tap any player in the **选手数据库** (Player Database) or use **🔍 选手查询** (Find Player) to see their detailed page: full stat breakdown plus a head-to-head table showing their record against every other player.
+Tap any player in the **Player Database** or use **🔍 Find Player** to see their detailed page: full stat breakdown plus a head-to-head table showing their record against every other player.
 
-The expense card on the home screen shows the running total spent. **复制消费信息** copies the per-player breakdown for sharing in your group chat ("here's what everyone owes"). **清零消费** resets all totals (e.g., at the start of a new month) — there's a one-step undo until the next event is committed.
+The expense card on the home screen shows the running total spent. **📋 Copy expense info** copies the per-player breakdown for sharing in your group chat ("here's what everyone owes"). **🗑 Reset expenses** resets all totals (e.g., at the start of a new month) — there's a one-step undo until the next event is committed.
 
 ---
 
 ## Updates
 
-When the developer pushes new features, you'll see a banner at the top of the app saying **"✨ 有新版本可用 / Update now"**. Tap **立即更新** and the app reloads with the new version. Your data is preserved across updates.
+When the developer pushes new features, you'll see a banner at the top of the app saying **"✨ A new version is available"**. Tap **Update now** and the app reloads with the new version. Your data is preserved across updates.
 
 If you don't see the banner but think there should be a new version: close the app completely (swipe it away from your recent apps) and reopen. The banner will appear if there's an update.
 
@@ -152,9 +152,9 @@ If you don't see the banner but think there should be a new version: close the a
 
 ## Importing data on a new phone (or after a wipe)
 
-1. Get the backup JSON file onto the new phone (e.g. download it from WeChat 文件传输助手).
+1. Get the backup JSON file onto the new phone (e.g. download it from your saved chat / email).
 2. Open MatchMaker on the new phone.
-3. Tap **📋 选手数据库** → scroll to **数据导入 / 导出** → tap **📥 导入 JSON**.
+3. Tap **📇 Player Database** → scroll to **Import / Export** → tap **📥 Import JSON**.
 4. Pick the backup file. The app shows you "X players, Y history entries — confirm?" → tap OK.
 5. Done. Everything is back.
 
@@ -170,7 +170,7 @@ If you don't see the banner but think there should be a new version: close the a
 **I can't add the app to my home screen on iOS.**
 - You must use Safari, not Chrome or any other browser. iOS restricts PWA install to Safari.
 
-**The 📤 分享备份 button doesn't appear on the success screen.**
+**The 📤 Share backup button doesn't appear on the success screen.**
 - Your browser doesn't support the Web Share API for files. The app should still have auto-downloaded the backup to your Downloads folder — just share it manually from there.
 
 **Score entry doesn't auto-fill the result.**
