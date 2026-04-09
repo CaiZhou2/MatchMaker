@@ -72,42 +72,64 @@ function renderHome() {
   const lbDiv = document.getElementById('home-leaderboard');
   if (players.length === 0) {
     lbDiv.innerHTML = '<p class="empty">尚无选手。点击"选手数据库"添加。</p>';
-    return;
-  }
-
-  let sorted;
-  if (ui.leaderboardTab === 'points') {
-    sorted = [...players].sort((a, b) =>
-      b.points - a.points || a.name.localeCompare(b.name)
-    );
   } else {
-    // Win rate tab: sort by WR desc, then games desc, then name
-    sorted = [...players].sort((a, b) => {
-      const wrA = Storage.getWinRate(a), wrB = Storage.getWinRate(b);
-      if (wrA !== wrB) return wrB - wrA;
-      const gA = Storage.getTotalGames(a), gB = Storage.getTotalGames(b);
-      if (gA !== gB) return gB - gA;
-      return a.name.localeCompare(b.name);
-    });
-  }
-  const top = sorted.slice(0, 10);
+    let sorted;
+    if (ui.leaderboardTab === 'points') {
+      sorted = [...players].sort((a, b) =>
+        b.points - a.points || a.name.localeCompare(b.name)
+      );
+    } else if (ui.leaderboardTab === 'winrate') {
+      sorted = [...players].sort((a, b) => {
+        const wrA = Storage.getWinRate(a), wrB = Storage.getWinRate(b);
+        if (wrA !== wrB) return wrB - wrA;
+        const gA = Storage.getTotalGames(a), gB = Storage.getTotalGames(b);
+        if (gA !== gB) return gB - gA;
+        return a.name.localeCompare(b.name);
+      });
+    } else { // spent
+      sorted = [...players].sort((a, b) =>
+        (b.totalSpent || 0) - (a.totalSpent || 0) || a.name.localeCompare(b.name)
+      );
+    }
+    const top = sorted.slice(0, 10);
 
-  lbDiv.innerHTML = top.map((p, i) => {
-    const main = ui.leaderboardTab === 'points'
-      ? `${p.points} 分`
-      : `${fmtPct(Storage.getWinRate(p))}`;
-    const sub = ui.leaderboardTab === 'points'
-      ? fmtWLD(p)
-      : `${Storage.getTotalGames(p)} 场 · ${fmtWLD(p)}`;
-    return `
-      <div class="lb-row">
-        <span class="lb-rank">#${i + 1}</span>
-        <span class="lb-name">${escapeHtml(p.name)}</span>
-        <span class="lb-points">${main}</span>
-        <span class="lb-wld">${sub}</span>
-      </div>
-    `;
-  }).join('');
+    lbDiv.innerHTML = top.map((p, i) => {
+      let main, sub;
+      if (ui.leaderboardTab === 'points') {
+        main = `${p.points} 分`;
+        sub = fmtWLD(p);
+      } else if (ui.leaderboardTab === 'winrate') {
+        main = fmtPct(Storage.getWinRate(p));
+        sub = `${Storage.getTotalGames(p)} 场 · ${fmtWLD(p)}`;
+      } else {
+        main = fmtMoney(p.totalSpent || 0);
+        sub = `${p.events} 周参与`;
+      }
+      return `
+        <div class="lb-row">
+          <span class="lb-rank">#${i + 1}</span>
+          <span class="lb-name">${escapeHtml(p.name)}</span>
+          <span class="lb-points">${main}</span>
+          <span class="lb-wld">${sub}</span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Expense card
+  const totalSpent = Storage.getTotalSpent();
+  document.getElementById('expense-total').textContent = fmtMoney(totalSpent);
+  const undoBtn = document.getElementById('btn-undo-expenses');
+  const hasBackup = Storage.hasExpenseBackup();
+  undoBtn.classList.toggle('hidden', !hasBackup);
+  document.getElementById('expense-hint').textContent = hasBackup
+    ? '上次清零的数据已备份，可在下次比赛提交前恢复。'
+    : '';
+}
+
+function fmtMoney(n) {
+  const v = Number(n) || 0;
+  return '¥' + v.toFixed(2);
 }
 
 function phaseLabel(phase) {
@@ -135,7 +157,7 @@ function renderDB() {
           <span class="db-points">${p.points} 分 · ${wr}</span>
         </div>
         <div class="db-sub">
-          ${p.events} 周 · ${games} 场 · ${fmtWLD(p)}
+          ${p.events} 周 · ${games} 场 · ${fmtWLD(p)} · 消费 ${fmtMoney(p.totalSpent || 0)}
           <button class="btn-icon" data-del="${p.id}">×</button>
         </div>
       </div>
@@ -599,6 +621,7 @@ function confirmStartTournament() {
     numCourts: parseInt(document.getElementById('num-courts').value, 10),
     matchDuration: parseInt(document.getElementById('match-duration').value, 10),
     totalTime: parseInt(document.getElementById('total-time').value, 10),
+    expense: parseFloat(document.getElementById('weekly-expense').value) || 0,
     attendees: Array.from(ui.selectedAttendees),
     teams: ui.pendingTeams,
     plan: ui.pendingPlan,
@@ -680,6 +703,168 @@ function findMatch(ev, key) {
 function resolveTeamForSummary(ref, ev) {
   if (typeof ref === 'number') return ev.teams[ref];
   return Storage._helpers.resolvePlaceholder(ref, ev);
+}
+
+/* ─── Expense Reset / Undo ──────────────────────────────────── */
+function handleResetExpenses() {
+  const total = Storage.getTotalSpent();
+  if (total === 0 && !Storage.hasExpenseBackup()) {
+    alert('当前消费总额已为零。');
+    return;
+  }
+  // Double confirm
+  if (!confirm(`确定要将所有选手的累计消费清零吗？\n\n当前总额：${fmtMoney(total)}\n\n此操作可在下次比赛提交前恢复。`)) {
+    return;
+  }
+  if (!confirm('再次确认：清零？')) {
+    return;
+  }
+  Storage.resetExpenses();
+  renderHome();
+  if (currentView === 'db') renderDB();
+}
+
+function handleUndoExpenses() {
+  if (!confirm('恢复上次清零前的消费数据？')) return;
+  if (Storage.undoExpenseReset()) {
+    renderHome();
+    if (currentView === 'db') renderDB();
+  } else {
+    alert('无可恢复的数据。');
+  }
+}
+
+/* ─── Copy Schedule to Clipboard ───────────────────────────── */
+function buildScheduleText(teams, plan, opts = {}) {
+  const { date, matchDuration, expense } = opts;
+  const lines = [];
+  lines.push('🏆 MatchMaker 比赛安排' + (date ? ` · ${date}` : ''));
+  lines.push('');
+
+  // Teams
+  lines.push(`【队伍】共 ${teams.length} 队`);
+  teams.forEach(t => {
+    const names = t.players
+      .map(pid => Storage.getPlayer(pid)?.name || '?')
+      .join('、');
+    lines.push(`· ${t.name}：${names}`);
+  });
+  lines.push('');
+
+  // Format
+  const fmt = plan.format === 'groups-knockout'
+    ? `小组赛 + ${plan.knockout_size}强淘汰`
+    : '循环赛';
+  lines.push(`【赛制】${fmt}`);
+  lines.push('');
+
+  // Schedule
+  lines.push('【赛程】');
+  const evLike = { plan, teams, results: {} };
+  const dur = matchDuration || 0;
+  plan.schedule.forEach((slot) => {
+    const startMin = (slot.slot - 1) * dur;
+    const endMin = startMin + dur;
+    const timeStr = dur > 0 ? ` (${fmtMin(startMin)}-${fmtMin(endMin)})` : '';
+    const phaseText = phaseDisplay(slot.phase);
+    const roundText = typeof slot.round === 'string' ? slot.round : `第${slot.round}轮`;
+    lines.push(`━━ 时段${slot.slot}${timeStr} · ${phaseText}${roundText} ━━`);
+    slot.matches.forEach(m => {
+      if (m.kind === 'friendly') {
+        lines.push(`  📍 场地${m.court}：自由场（淘汰队伍友谊赛）`);
+      } else {
+        const aName = scheduleTeamName(m.team_a, evLike);
+        const bName = scheduleTeamName(m.team_b, evLike);
+        lines.push(`  📍 场地${m.court}：${aName} vs ${bName}`);
+      }
+    });
+    lines.push('');
+  });
+
+  // Summary
+  const rankedCount = plan.schedule.reduce(
+    (s, slot) => s + slot.matches.filter(m => m.kind === 'ranked').length, 0);
+  const totalMin = plan.slotsUsed * dur;
+  lines.push(`共 ${rankedCount} 场正赛 · ${plan.slotsUsed} 时段 · 约 ${totalMin} 分钟`);
+
+  if (expense > 0) {
+    const perHead = teams.reduce((s, t) => s + t.players.length, 0);
+    const share = perHead > 0 ? (expense / perHead) : 0;
+    lines.push('');
+    lines.push(`💰 本周消费：${fmtMoney(expense)}（人均 ${fmtMoney(share)}）`);
+  }
+
+  return lines.join('\n');
+}
+
+function scheduleTeamName(ref, evLike) {
+  if (typeof ref === 'number') {
+    return evLike.teams[ref]?.name || '?';
+  }
+  // Placeholder (knockout) — always show the pretty label in the shared text
+  // form. Resolving with a partial/empty results map would give misleading
+  // "insertion-order" names (e.g. "Team 1 vs Team 2") that look like real
+  // matchups. Users sharing schedules typically do so pre-tournament, so the
+  // placeholder label is both safer and more informative.
+  return placeholderLabel(ref);
+}
+
+function fmtMin(minutes) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (e) { /* fall through */ }
+  // Fallback: hidden textarea + execCommand
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function handleCopyScheduleFromTeams() {
+  if (!ui.pendingTeams || !ui.pendingPlan || !ui.pendingPlan.fits) {
+    alert('请先生成有效的比赛方案。');
+    return;
+  }
+  const text = buildScheduleText(ui.pendingTeams, ui.pendingPlan, {
+    date: new Date().toISOString().slice(0, 10),
+    matchDuration: parseInt(document.getElementById('match-duration').value, 10) || 0,
+    expense: parseFloat(document.getElementById('weekly-expense').value) || 0,
+  });
+  const ok = await copyText(text);
+  alert(ok ? '✓ 比赛安排已复制到剪贴板，可直接粘贴到聊天软件。' : '复制失败，请手动复制。');
+}
+
+async function handleCopyScheduleFromTournament() {
+  const ev = Storage.getCurrentEvent();
+  if (!ev || !ev.plan) {
+    alert('没有正在进行的比赛。');
+    return;
+  }
+  const text = buildScheduleText(ev.teams, ev.plan, {
+    date: ev.date,
+    matchDuration: ev.matchDuration,
+    expense: ev.expense || 0,
+  });
+  const ok = await copyText(text);
+  alert(ok ? '✓ 比赛安排已复制到剪贴板，可直接粘贴到聊天软件。' : '复制失败，请手动复制。');
 }
 
 /* ─── Import / Export ───────────────────────────────────────── */
@@ -793,9 +978,15 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTeams();
   };
   document.getElementById('btn-start-tournament').onclick = confirmStartTournament;
+  document.getElementById('btn-copy-schedule-teams').onclick = handleCopyScheduleFromTeams;
 
   // Tournament
   document.getElementById('btn-finish-tournament').onclick = finishTournament;
+  document.getElementById('btn-copy-schedule-tour').onclick = handleCopyScheduleFromTournament;
+
+  // Expense reset / undo
+  document.getElementById('btn-reset-expenses').onclick = handleResetExpenses;
+  document.getElementById('btn-undo-expenses').onclick = handleUndoExpenses;
 
   // Done
   document.getElementById('btn-done-home').onclick = () => showView('home');

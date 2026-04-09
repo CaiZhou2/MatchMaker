@@ -31,10 +31,20 @@ MatchMaker is a mobile-friendly weekly tournament scheduling app. It tracks a ro
 - Both shown as tabs on the home screen.
 
 ## History & Data Portability
-- Every completed event is archived with full detail: teams, match results, per-player point deltas, and player name snapshots (readable even if a player is later deleted).
+- Every completed event is archived with full detail: teams, match results, per-player point deltas, player name snapshots (readable even if a player is later deleted), and weekly expense.
 - History view shows past events with expandable detail.
-- Export: full data dump (players + history + current event) as a JSON file download.
+- Export: full data dump (players + history + current event + expense backup) as a JSON file download.
 - Import: JSON file upload, replaces existing data after confirmation.
+- Storage shape migrations live in `Storage._migrate()` — always additive so older saves upgrade on read.
+
+## Expense Tracking
+- Each event's "weekly expense" is entered on the setup screen and split equally across attendees on commit.
+- Each player carries a running `totalSpent`. Home shows the aggregate on an expense card and per-player totals on a "消费榜" tab.
+- **Reset**: wipes all players' `totalSpent`. Requires double confirmation. Snapshots the prior state into `expenseBackup`.
+- **Undo**: restores from `expenseBackup`. Available only until the next event is committed — a new commit clears the backup (a new data point means the old undo no longer makes sense).
+
+## Share Schedule
+- The teams-review view and the tournament view both have a "复制比赛安排" button that copies a human-readable plain-text rendering of the schedule to the clipboard (Clipboard API with an `execCommand` fallback for older browsers), suitable for pasting into WeChat / Telegram / etc.
 
 ## Project Structure
 - `algorithm/` — Python algorithm prototype for validation

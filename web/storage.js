@@ -43,7 +43,7 @@ const Storage = {
   },
 
   _empty() {
-    return { players: {}, currentEvent: null, history: [] };
+    return { players: {}, currentEvent: null, history: [], expenseBackup: null };
   },
 
   // Forward-migrate data shape so older saves don't crash newer code.
@@ -52,6 +52,7 @@ const Storage = {
     if (typeof data.players !== 'object' || data.players === null) data.players = {};
     if (!Array.isArray(data.history)) data.history = [];
     if (data.currentEvent === undefined) data.currentEvent = null;
+    if (data.expenseBackup === undefined) data.expenseBackup = null;
     // Ensure every player has the expected fields
     Object.values(data.players).forEach(p => {
       if (p.points === undefined) p.points = 0;
@@ -59,6 +60,7 @@ const Storage = {
       if (p.draws === undefined) p.draws = 0;
       if (p.losses === undefined) p.losses = 0;
       if (p.events === undefined) p.events = 0;
+      if (p.totalSpent === undefined) p.totalSpent = 0;
     });
     return data;
   },
@@ -87,6 +89,7 @@ const Storage = {
       id, name,
       points: 0, wins: 0, draws: 0, losses: 0,
       events: 0,
+      totalSpent: 0,
     };
     this.save();
     return d.players[id];
@@ -146,7 +149,7 @@ const Storage = {
     // Compute per-player point/wld deltas for this event (for history archival)
     const delta = {};
     ev.attendees.forEach(pid => {
-      delta[pid] = { points: 0, wins: 0, draws: 0, losses: 0 };
+      delta[pid] = { points: 0, wins: 0, draws: 0, losses: 0, spent: 0 };
     });
 
     Object.entries(ev.results || {}).forEach(([key, result]) => {
@@ -157,6 +160,16 @@ const Storage = {
       if (!ta || !tb) return;
       accumulateDelta(delta, ta, tb, result);
     });
+
+    // Split the weekly expense equally across attendees
+    const expense = Number(ev.expense) || 0;
+    const attendeeCount = ev.attendees.length;
+    const perHead = attendeeCount > 0 ? expense / attendeeCount : 0;
+    if (perHead > 0) {
+      ev.attendees.forEach(pid => {
+        if (delta[pid]) delta[pid].spent = perHead;
+      });
+    }
 
     // Apply deltas to DB + bump events count for attendees
     ev.attendees.forEach(pid => {
@@ -169,7 +182,11 @@ const Storage = {
       p.wins += dx.wins;
       p.draws += dx.draws;
       p.losses += dx.losses;
+      p.totalSpent = (p.totalSpent || 0) + (dx.spent || 0);
     });
+
+    // A new event's expenses invalidate any prior "reset" undo backup.
+    d.expenseBackup = null;
 
     // Snapshot player names at commit time (so history remains readable if players deleted)
     const nameSnapshot = {};
@@ -185,6 +202,7 @@ const Storage = {
       numCourts: ev.numCourts,
       matchDuration: ev.matchDuration,
       totalTime: ev.totalTime,
+      expense,
       attendees: ev.attendees.slice(),
       teams: JSON.parse(JSON.stringify(ev.teams)),
       plan: JSON.parse(JSON.stringify(ev.plan)),
@@ -195,6 +213,40 @@ const Storage = {
 
     d.currentEvent = null;
     this.save();
+  },
+
+  // ─── Expense helpers ──────────────────────────────────────
+  getTotalSpent() {
+    return this.getAllPlayers().reduce((s, p) => s + (p.totalSpent || 0), 0);
+  },
+
+  // Wipe all players' totalSpent. Keeps a snapshot so the user can undo
+  // until the next event commit. Returns the snapshot size.
+  resetExpenses() {
+    const d = this.load();
+    const snapshot = {};
+    Object.values(d.players).forEach(p => {
+      snapshot[p.id] = p.totalSpent || 0;
+      p.totalSpent = 0;
+    });
+    d.expenseBackup = snapshot;
+    this.save();
+  },
+
+  hasExpenseBackup() {
+    const d = this.load();
+    return d.expenseBackup && Object.keys(d.expenseBackup).length > 0;
+  },
+
+  undoExpenseReset() {
+    const d = this.load();
+    if (!d.expenseBackup) return false;
+    Object.entries(d.expenseBackup).forEach(([pid, amount]) => {
+      if (d.players[pid]) d.players[pid].totalSpent = amount;
+    });
+    d.expenseBackup = null;
+    this.save();
+    return true;
   },
 
   // ─── History ──────────────────────────────────────────────

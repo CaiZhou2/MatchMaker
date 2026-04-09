@@ -38,8 +38,24 @@
         <div class="tab-bar">
           <button class="tab-btn active" data-tab="points">积分榜</button>
           <button class="tab-btn" data-tab="winrate">胜率榜</button>
+          <button class="tab-btn" data-tab="spent">消费榜</button>
         </div>
         <div id="home-leaderboard"></div>
+      </div>
+
+      <div class="card" id="home-expense-card">
+        <h2>消费统计</h2>
+        <div class="expense-summary">
+          <div class="expense-total">
+            <span class="lbl">累计总消费</span>
+            <span class="val" id="expense-total">¥0.00</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn-secondary" id="btn-reset-expenses">🗑 清零消费</button>
+          <button class="btn-secondary hidden" id="btn-undo-expenses">↩ 恢复上次数据</button>
+        </div>
+        <div class="hint" id="expense-hint"></div>
       </div>
     </section>
 
@@ -132,6 +148,15 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label>3. 本周消费</label>
+          <div class="inline-input">
+            <span class="currency-symbol">¥</span>
+            <input type="number" id="weekly-expense" value="0" min="0" step="0.01" placeholder="0">
+          </div>
+          <div class="hint">将均摊到本周所有参赛人员</div>
+        </div>
+
         <button class="btn-primary" id="btn-form-teams">生成队伍</button>
       </div>
     </section>
@@ -156,6 +181,7 @@
 
         <div class="card-inner" id="format-preview"></div>
 
+        <button class="btn-secondary" id="btn-copy-schedule-teams">📋 复制比赛安排</button>
         <button class="btn-primary" id="btn-start-tournament">开始比赛</button>
       </div>
     </section>
@@ -171,6 +197,7 @@
         </div>
 
         <div id="tournament-progress" class="tournament-progress"></div>
+        <button class="btn-secondary" id="btn-copy-schedule-tour">📋 复制比赛安排</button>
         <div id="tournament-schedule"></div>
 
         <button class="btn-primary hidden" id="btn-finish-tournament">完成比赛 & 更新积分</button>

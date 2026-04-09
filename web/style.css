@@ -699,6 +699,42 @@ input:focus, textarea:focus {
   color: var(--success);
 }
 
+/* ─── Currency input ────────────────────────────────────────────── */
+.currency-symbol {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  border: 1.5px solid var(--border);
+  border-radius: 7px;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+/* ─── Expense summary card ─────────────────────────────────────── */
+.expense-summary {
+  background: var(--primary-light);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.expense-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.expense-total .lbl {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.expense-total .val {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
 /* ─── Animations ────────────────────────────────────────────────── */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
