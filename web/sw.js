@@ -1,4 +1,4 @@
-const CACHE_NAME = 'matchmaker-v17';
+const CACHE_NAME = 'matchmaker-v18';
 const ASSETS = [
   './',
   './index.html',
@@ -8,6 +8,9 @@ const ASSETS = [
   './scheduler.js',
   './app.js',
   './manifest.json',
+  './logo.png',
+  './logo-192.png',
+  './logo-180.png',
 ];
 
 self.addEventListener('install', e => {

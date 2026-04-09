@@ -1,4 +1,8 @@
-# 🏆 MatchMaker
+<p align="center">
+  <img src="web/logo.png" alt="MatchMaker logo" width="200">
+</p>
+
+# MatchMaker
 
 **Languages**: English · [简体中文](README.zh-CN.md)
 
