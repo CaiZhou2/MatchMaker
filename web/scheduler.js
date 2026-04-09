@@ -437,6 +437,58 @@ function seedBracket(n) {
  * `teams` array containing all the per-match teams generated. Match
  * `team_a` / `team_b` reference these teams by numeric index.
  */
+/**
+ * Friendly / random-fair scheduler.
+ *
+ * Goal: schedule matches that are
+ *   (a) **Internally fair** — within each match, the two teams should
+ *       have similar total skill (so the game is competitive).
+ *   (b) **Equal participation** — every player plays roughly the
+ *       same number of matches across the event.
+ *   (c) **Mixed pairings** — over the course of an event, every
+ *       player should play with and against many different opponents,
+ *       not just the same 3 people every slot.
+ *   (d) **No consecutive repeats** — the same 4 people shouldn't be
+ *       grouped together in two slots in a row when there are other
+ *       players who could fill in instead.
+ *
+ * Algorithm — greedy co-occurrence minimisation:
+ *
+ *   1. Track a pairwise co-occurrence count: how many times each pair
+ *      of players has been on the same court so far. This is the
+ *      anti-clique signal.
+ *
+ *   2. For each (slot, court), build a cohort by greedy selection:
+ *
+ *      a. Pick a "seed" player from the lowest-game-count pool
+ *         (random tiebreak). This guarantees property (b).
+ *
+ *      b. Repeatedly add the player whose sum of co-occurrence
+ *         counts with the already-picked cohort is LOWEST. Tiebreak
+ *         by game count, then random. This naturally:
+ *           - mixes tiers in slot 1 (everyone is co=0, so the picks
+ *             are pure random — produces 强弱 mixes too, not just
+ *             tier clusters)
+ *           - in later slots, prefers players who haven't yet been
+ *             grouped with the seed — so the same 4 won't replay
+ *           - is bounded: when the pool is exactly playersPerMatch
+ *             large, the algorithm has no choice and picks them all
+ *             (this can't be helped)
+ *
+ *   3. INSIDE each cohort, sort by win rate descending and snake-draft
+ *      into teams. This is property (a) — even when the cohort spans
+ *      multiple skill tiers, snake-drafting gives each side one high
+ *      pick + one low pick, so the two teams' total strengths are
+ *      roughly equal.
+ *
+ *   4. After each match, bump the co-occurrence counter for every
+ *      pair in the cohort (regardless of which team they're on — we
+ *      consider "played on the same court" the relevant signal).
+ *
+ * Why greedy and not optimal? An optimal "minimum total co-occurrence
+ * over all slots" assignment is a hard combinatorial problem. Greedy
+ * gets us most of the way at trivial cost.
+ */
 function planRandomFairFallback({
   attendeeIds, playersMap, teamSize, teamsPerMatch,
   numCourts, matchDuration, totalTime,
@@ -469,6 +521,54 @@ function planRandomFairFallback({
   const gameCount = {};
   attendeeIds.forEach(id => { gameCount[id] = 0; });
 
+  // Pairwise co-occurrence: coOccur[a][b] = number of times a and b
+  // have been on the same court together so far this event.
+  const coOccur = {};
+  attendeeIds.forEach(id => { coOccur[id] = {}; });
+  function pairCo(a, b) { return coOccur[a][b] || 0; }
+  function bumpPair(a, b) {
+    coOccur[a][b] = (coOccur[a][b] || 0) + 1;
+    coOccur[b][a] = (coOccur[b][a] || 0) + 1;
+  }
+
+  // Greedy cohort selector. `available` is the pool to pick from
+  // (players not yet used in the current slot). Returns the chosen
+  // cohort, or null if `available` is too small.
+  function pickCohort(available) {
+    if (available.length < playersPerMatch) return null;
+
+    // Seed: random pick from the lowest-game-count tier
+    const minGc = Math.min(...available.map(id => gameCount[id]));
+    const seedPool = available.filter(id => gameCount[id] === minGc);
+    // Fisher-Yates shuffle in place
+    for (let i = seedPool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [seedPool[i], seedPool[j]] = [seedPool[j], seedPool[i]];
+    }
+    const cohort = [seedPool[0]];
+
+    while (cohort.length < playersPerMatch) {
+      // Score each remaining candidate by (sum-co with cohort, gc, random)
+      let best = null;
+      let bestKey = null;
+      for (const id of available) {
+        if (cohort.includes(id)) continue;
+        let coSum = 0;
+        for (const pid of cohort) coSum += pairCo(id, pid);
+        const key = [coSum, gameCount[id], Math.random()];
+        if (!bestKey
+            || key[0] < bestKey[0]
+            || (key[0] === bestKey[0] && key[1] < bestKey[1])
+            || (key[0] === bestKey[0] && key[1] === bestKey[1] && key[2] < bestKey[2])) {
+          best = id;
+          bestKey = key;
+        }
+      }
+      cohort.push(best);
+    }
+    return cohort;
+  }
+
   const teams = [];      // global team list (one entry per generated match-side)
   const schedule = [];
 
@@ -480,25 +580,22 @@ function planRandomFairFallback({
 
     for (let courtIdx = 0; courtIdx < courtsPerSlot; courtIdx++) {
       const available = attendeeIds.filter(id => !usedThisSlot.has(id));
-      if (available.length < playersPerMatch) break;
+      const cohort = pickCohort(available);
+      if (!cohort) break;
 
-      // Sort by play count asc, win rate desc, jitter to break ties
-      available.sort((a, b) => {
-        const gd = gameCount[a] - gameCount[b];
-        if (gd !== 0) return gd;
-        const wd = wr(b) - wr(a);
-        if (wd !== 0) return wd;
-        return Math.random() - 0.5;
-      });
+      // Within the cohort, sort by win rate descending and snake-draft
+      // for INTERNAL match balance. This is property (a) — the two
+      // teams of a single match always end up with one stronger and
+      // one weaker player when the cohort spans multiple WR levels,
+      // producing 强弱 vs 强弱. When the cohort is all-strong or
+      // all-weak (which still happens occasionally because the cohort
+      // selection is random in the early slots), snake gives 强强 vs
+      // 强强 / 弱弱 vs 弱弱 — also fair, just at different absolute
+      // levels.
+      const ranked = [...cohort].sort((a, b) => wr(b) - wr(a));
 
-      const cohort = available.slice(0, playersPerMatch);
-
-      // Within the cohort, sort strictly by win rate desc and snake-draft.
-      cohort.sort((a, b) => wr(b) - wr(a));
-
-      // Snake draft into teamsPerMatch teams
       const teamPlayers = Array.from({ length: teamsPerMatch }, () => []);
-      cohort.forEach((pid, i) => {
+      ranked.forEach((pid, i) => {
         const round = Math.floor(i / teamsPerMatch);
         const pos = i % teamsPerMatch;
         const teamIdx = round % 2 === 0 ? pos : (teamsPerMatch - 1 - pos);
@@ -516,12 +613,6 @@ function planRandomFairFallback({
         return idx;
       });
 
-      // For teamsPerMatch === 2 we have a single ranked match between
-      // teamIndices[0] and teamIndices[1]. For teamsPerMatch > 2 we still
-      // emit a single "match" record with the two teams in a multi-team
-      // contest — keeping the schema consistent with the cup planners,
-      // which represent each court as a single match between team_a/team_b.
-      // (For now teamsPerMatch is effectively 2 in the current UI.)
       slotMatches.push({
         court: courtIdx + 1,
         team_a: teamIndices[0],
@@ -529,11 +620,17 @@ function planRandomFairFallback({
         kind,
       });
 
-      // Bump usage
+      // Bump per-player game count + pairwise co-occurrence for the
+      // entire cohort (so future slots try not to repeat this group).
       cohort.forEach(pid => {
         usedThisSlot.add(pid);
         gameCount[pid] += 1;
       });
+      for (let i = 0; i < cohort.length; i++) {
+        for (let j = i + 1; j < cohort.length; j++) {
+          bumpPair(cohort[i], cohort[j]);
+        }
+      }
     }
 
     if (slotMatches.length > 0) {
