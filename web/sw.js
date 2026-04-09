@@ -1,8 +1,9 @@
-const CACHE_NAME = 'matchmaker-v4';
+const CACHE_NAME = 'matchmaker-v5';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
+  './i18n.js',
   './storage.js',
   './scheduler.js',
   './app.js',

@@ -1,5 +1,11 @@
 /**
  * MatchMaker - App View Router & Controller
+ *
+ * All user-facing strings go through `t(key, params)` from i18n.js.
+ * Static HTML strings use `data-i18n` / `data-i18n-ph` attributes and
+ * are applied by `I18N.applyToDOM()`. Dynamically-rendered strings
+ * call `t()` at render time, so switching languages simply re-renders
+ * the current view.
  */
 
 /* ─── View Router ───────────────────────────────────────────── */
@@ -21,6 +27,12 @@ function showView(name) {
   if (name === 'history') renderHistory();
 }
 
+function rerenderCurrentView() {
+  // Called after a language switch — re-renders the currently visible view
+  // so dynamically-generated strings pick up the new language.
+  showView(currentView);
+}
+
 /* ─── Transient UI State ────────────────────────────────────── */
 const ui = {
   selectedAttendees: new Set(),
@@ -28,7 +40,7 @@ const ui = {
   swapSelection: null,  // {teamIdx, playerIdx}
   pendingTeams: null,
   pendingPlan: null,
-  leaderboardTab: 'points',  // 'points' | 'winrate'
+  leaderboardTab: 'points',  // 'points' | 'winrate' | 'spent'
   expandedHistory: new Set(),
 };
 
@@ -37,7 +49,11 @@ function fmtPct(r) {
   return (r * 100).toFixed(0) + '%';
 }
 function fmtWLD(p) {
-  return `${p.wins}胜 ${p.draws}平 ${p.losses}负`;
+  return t('home.lb.wld', { w: p.wins, d: p.draws, l: p.losses });
+}
+function fmtMoney(n) {
+  const v = Number(n) || 0;
+  return '¥' + v.toFixed(2);
 }
 
 /* ─── HOME ──────────────────────────────────────────────────── */
@@ -49,16 +65,16 @@ function renderHome() {
   const totalEvents = players.reduce((m, p) => Math.max(m, p.events), 0);
   const totalHistory = Storage.getHistory().length;
   document.getElementById('home-stats').innerHTML = `
-    <div class="stat-block"><div class="val">${players.length}</div><div class="lbl">已注册选手</div></div>
-    <div class="stat-block"><div class="val">${totalEvents}</div><div class="lbl">最多参与周数</div></div>
-    <div class="stat-block"><div class="val">${totalHistory}</div><div class="lbl">历史比赛</div></div>
+    <div class="stat-block"><div class="val">${players.length}</div><div class="lbl">${escapeHtml(t('home.stats.players'))}</div></div>
+    <div class="stat-block"><div class="val">${totalEvents}</div><div class="lbl">${escapeHtml(t('home.stats.weeks'))}</div></div>
+    <div class="stat-block"><div class="val">${totalHistory}</div><div class="lbl">${escapeHtml(t('home.stats.events'))}</div></div>
   `;
 
   // Resume button
   const resumeBtn = document.getElementById('btn-resume-event');
   if (ev && ev.phase !== 'done') {
     resumeBtn.style.display = '';
-    resumeBtn.textContent = `继续未完成的比赛 (阶段: ${phaseLabel(ev.phase)}) →`;
+    resumeBtn.textContent = t('home.btn.resume', { phase: phaseLabel(ev.phase) });
   } else {
     resumeBtn.style.display = 'none';
   }
@@ -71,7 +87,7 @@ function renderHome() {
   // Leaderboard
   const lbDiv = document.getElementById('home-leaderboard');
   if (players.length === 0) {
-    lbDiv.innerHTML = '<p class="empty">尚无选手。点击"选手数据库"添加。</p>';
+    lbDiv.innerHTML = `<p class="empty">${escapeHtml(t('home.leaderboard.empty'))}</p>`;
   } else {
     let sorted;
     if (ui.leaderboardTab === 'points') {
@@ -96,21 +112,21 @@ function renderHome() {
     lbDiv.innerHTML = top.map((p, i) => {
       let main, sub;
       if (ui.leaderboardTab === 'points') {
-        main = `${p.points} 分`;
+        main = t('home.lb.points', { n: p.points });
         sub = fmtWLD(p);
       } else if (ui.leaderboardTab === 'winrate') {
         main = fmtPct(Storage.getWinRate(p));
-        sub = `${Storage.getTotalGames(p)} 场 · ${fmtWLD(p)}`;
+        sub = `${t('home.lb.games', { n: Storage.getTotalGames(p) })} · ${fmtWLD(p)}`;
       } else {
         main = fmtMoney(p.totalSpent || 0);
-        sub = `${p.events} 周参与`;
+        sub = t('home.lb.events', { n: p.events });
       }
       return `
         <div class="lb-row">
           <span class="lb-rank">#${i + 1}</span>
           <span class="lb-name">${escapeHtml(p.name)}</span>
-          <span class="lb-points">${main}</span>
-          <span class="lb-wld">${sub}</span>
+          <span class="lb-points">${escapeHtml(main)}</span>
+          <span class="lb-wld">${escapeHtml(sub)}</span>
         </div>
       `;
     }).join('');
@@ -123,17 +139,12 @@ function renderHome() {
   const hasBackup = Storage.hasExpenseBackup();
   undoBtn.classList.toggle('hidden', !hasBackup);
   document.getElementById('expense-hint').textContent = hasBackup
-    ? '上次清零的数据已备份，可在下次比赛提交前恢复。'
+    ? t('expense.hint.has_backup')
     : '';
 }
 
-function fmtMoney(n) {
-  const v = Number(n) || 0;
-  return '¥' + v.toFixed(2);
-}
-
 function phaseLabel(phase) {
-  return { setup: '设置', teams: '分组', running: '进行中', done: '已结束' }[phase] || phase;
+  return t('phase.' + phase) || phase;
 }
 
 /* ─── DB ────────────────────────────────────────────────────── */
@@ -143,21 +154,28 @@ function renderDB() {
 
   const listDiv = document.getElementById('db-player-list');
   if (sorted.length === 0) {
-    listDiv.innerHTML = '<p class="empty">尚无选手。</p>';
+    listDiv.innerHTML = `<p class="empty">${escapeHtml(t('db.empty'))}</p>`;
     return;
   }
 
   listDiv.innerHTML = sorted.map(p => {
     const games = Storage.getTotalGames(p);
     const wr = games > 0 ? fmtPct(Storage.getWinRate(p)) : '—';
+    const mainText = t('db.row.main', { points: p.points, wr });
+    const statsText = t('db.row.stats', {
+      events: p.events,
+      games,
+      wld: fmtWLD(p),
+      spent: fmtMoney(p.totalSpent || 0),
+    });
     return `
       <div class="db-row" data-id="${p.id}">
         <div class="db-main">
           <span class="db-name">${escapeHtml(p.name)}</span>
-          <span class="db-points">${p.points} 分 · ${wr}</span>
+          <span class="db-points">${escapeHtml(mainText)}</span>
         </div>
         <div class="db-sub">
-          ${p.events} 周 · ${games} 场 · ${fmtWLD(p)} · 消费 ${fmtMoney(p.totalSpent || 0)}
+          ${escapeHtml(statsText)}
           <button class="btn-icon" data-del="${p.id}">×</button>
         </div>
       </div>
@@ -168,7 +186,7 @@ function renderDB() {
     btn.onclick = () => {
       const id = btn.dataset.del;
       const p = Storage.getPlayer(id);
-      if (confirm(`删除 ${p.name} 吗？积分将丢失。`)) {
+      if (confirm(t('db.confirm.delete', { name: p.name }))) {
         Storage.deletePlayer(id);
         renderDB();
       }
@@ -182,7 +200,7 @@ function renderHistory() {
   const div = document.getElementById('history-list');
 
   if (list.length === 0) {
-    div.innerHTML = '<p class="empty">尚无历史记录。完成一场比赛后这里会出现。</p>';
+    div.innerHTML = `<p class="empty">${escapeHtml(t('hist.empty'))}</p>`;
     return;
   }
 
@@ -192,22 +210,32 @@ function renderHistory() {
   div.innerHTML = sorted.map(h => {
     const expanded = ui.expandedHistory.has(h.id);
     const fmt = h.plan?.format === 'groups-knockout'
-      ? `小组赛 + ${h.plan.knockout_size}强淘汰`
-      : '循环赛';
+      ? t('teams.format.groups_knockout', {
+          groups: (h.plan.group_sizes || []).join('/'),
+          n: h.plan.knockout_size,
+        })
+      : t('teams.format.round_robin');
     const rankedMatches = h.plan?.schedule.reduce(
       (s, slot) => s + slot.matches.filter(m => m.kind === 'ranked').length, 0
     ) || 0;
     const completedMatches = Object.keys(h.results || {}).length;
+
+    const summary = t('hist.row.summary', {
+      teams: h.teams.length,
+      players: h.attendees.length,
+      done: completedMatches,
+      total: rankedMatches,
+    });
 
     return `
       <div class="history-row">
         <div class="history-head" data-toggle="${h.id}">
           <div class="history-main">
             <span class="history-date">${escapeHtml(h.date)}</span>
-            <span class="history-fmt">${fmt}</span>
+            <span class="history-fmt">${escapeHtml(fmt)}</span>
           </div>
           <div class="history-sub">
-            ${h.teams.length} 队 · ${h.attendees.length} 人 · ${completedMatches}/${rankedMatches} 场
+            ${escapeHtml(summary)}
             <button class="btn-icon" data-del-hist="${h.id}">×</button>
           </div>
         </div>
@@ -230,7 +258,7 @@ function renderHistory() {
     btn.onclick = (e) => {
       e.stopPropagation();
       const id = btn.dataset.delHist;
-      if (confirm('删除这条历史记录？此操作不会退回积分。')) {
+      if (confirm(t('hist.confirm.delete'))) {
         Storage.deleteHistoryEntry(id);
         ui.expandedHistory.delete(id);
         renderHistory();
@@ -243,10 +271,11 @@ function renderHistoryDetail(h) {
   // Teams (using name snapshot)
   const nameOf = (pid) => h.nameSnapshot?.[pid] || Storage.getPlayer(pid)?.name || '?';
 
-  const teamsHtml = h.teams.map(t => `
+  const sep = t('text.name.separator');
+  const teamsHtml = h.teams.map(t_ => `
     <div class="hist-team">
-      <div class="hist-team-name">${escapeHtml(t.name)}</div>
-      <div class="hist-team-players">${t.players.map(nameOf).map(escapeHtml).join(', ')}</div>
+      <div class="hist-team-name">${escapeHtml(t_.name)}</div>
+      <div class="hist-team-players">${t_.players.map(nameOf).map(escapeHtml).join(sep)}</div>
     </div>
   `).join('');
 
@@ -258,8 +287,8 @@ function renderHistoryDetail(h) {
   const deltaHtml = deltaRows.map(r => `
     <div class="summary-row">
       <span class="sr-name">${escapeHtml(r.name)}</span>
-      <span class="sr-delta">+${r.d.points} 分</span>
-      <span class="sr-wld">${r.d.wins}胜 ${r.d.draws}平 ${r.d.losses}负</span>
+      <span class="sr-delta">${escapeHtml(t('done.delta.row', { pts: r.d.points }))}</span>
+      <span class="sr-wld">${escapeHtml(fmtWLD({ wins: r.d.wins, draws: r.d.draws, losses: r.d.losses }))}</span>
     </div>
   `).join('');
 
@@ -271,17 +300,17 @@ function renderHistoryDetail(h) {
       const key = `${slotIdx}:${m.court}`;
       const result = h.results?.[key];
       if (!result) return;
-      // Resolve teams via placeholder helpers using an event-like object
       const evLike = { plan: h.plan, teams: h.teams, results: h.results };
       const ta = resolveTeamFromHist(m.team_a, evLike);
       const tb = resolveTeamFromHist(m.team_b, evLike);
       if (!ta || !tb) return;
-      const resultText = result === 'A' ? `${ta.name} 胜`
-                       : result === 'B' ? `${tb.name} 胜`
-                       : '平局';
+      const resultText =
+        result === 'A' ? t('hist.result.a_won', { name: ta.name })
+      : result === 'B' ? t('hist.result.b_won', { name: tb.name })
+      : t('hist.result.draw');
       matches.push(`
         <div class="hist-match">
-          <span class="hist-match-phase">${phaseDisplay(slot.phase)}</span>
+          <span class="hist-match-phase">${escapeHtml(phaseDisplay(slot.phase))}</span>
           <span>${escapeHtml(ta.name)} vs ${escapeHtml(tb.name)}</span>
           <span class="hist-match-result">${escapeHtml(resultText)}</span>
         </div>
@@ -291,13 +320,13 @@ function renderHistoryDetail(h) {
 
   return `
     <div class="history-detail">
-      <h4>队伍</h4>
+      <h4>${escapeHtml(t('hist.detail.teams'))}</h4>
       <div class="hist-teams">${teamsHtml}</div>
 
-      <h4>比赛结果</h4>
-      <div class="hist-matches">${matches.join('') || '<p class="empty">无结果</p>'}</div>
+      <h4>${escapeHtml(t('hist.detail.matches'))}</h4>
+      <div class="hist-matches">${matches.join('') || '<p class="empty">' + escapeHtml(t('hist.detail.no_matches')) + '</p>'}</div>
 
-      <h4>积分变化</h4>
+      <h4>${escapeHtml(t('hist.detail.deltas'))}</h4>
       <div class="summary-list">${deltaHtml}</div>
     </div>
   `;
@@ -315,7 +344,7 @@ function renderSetup() {
 
   const listDiv = document.getElementById('attendee-list');
   if (sorted.length === 0) {
-    listDiv.innerHTML = '<p class="empty">先在"选手数据库"中添加选手。</p>';
+    listDiv.innerHTML = `<p class="empty">${escapeHtml(t('setup.empty.db'))}</p>`;
     updateAttendeeCount();
     return;
   }
@@ -324,7 +353,7 @@ function renderSetup() {
     <label class="attendee-row">
       <input type="checkbox" data-id="${p.id}" ${ui.selectedAttendees.has(p.id) ? 'checked' : ''}>
       <span class="att-name">${escapeHtml(p.name)}</span>
-      <span class="att-pts">${p.points} 分</span>
+      <span class="att-pts">${escapeHtml(t('home.lb.points', { n: p.points }))}</span>
     </label>
   `).join('');
 
@@ -340,7 +369,8 @@ function renderSetup() {
 }
 
 function updateAttendeeCount() {
-  document.getElementById('attendee-count').textContent = ui.selectedAttendees.size;
+  document.getElementById('attendee-count-hint').textContent =
+    t('setup.attendees.selected', { n: ui.selectedAttendees.size });
 }
 
 /* ─── TEAMS VIEW ────────────────────────────────────────────── */
@@ -350,15 +380,21 @@ function renderTeams() {
   const teams = ui.pendingTeams;
   const teamSize = parseInt(document.getElementById('team-size').value, 10) || 2;
 
-  document.getElementById('teams-hint').textContent =
-    `共 ${teams.length} 支队伍，每队 ${teamSize} 人。${ui.swapMode ? '点击两位选手进行交换。' : ''}`;
+  document.getElementById('teams-hint').textContent = ui.swapMode
+    ? t('teams.hint.swap', { count: teams.length, size: teamSize })
+    : t('teams.hint', { count: teams.length, size: teamSize });
+
+  // Swap-mode button label
+  document.getElementById('btn-swap-mode').textContent = ui.swapMode
+    ? t('teams.btn.swap.done')
+    : t('teams.btn.swap.start');
 
   const display = document.getElementById('teams-display');
-  display.innerHTML = teams.map((t, ti) => `
+  display.innerHTML = teams.map((team, ti) => `
     <div class="team-card">
-      <div class="team-card-head">${t.name}</div>
+      <div class="team-card-head">${escapeHtml(team.name)}</div>
       <div class="team-players">
-        ${t.players.map((pid, pi) => {
+        ${team.players.map((pid, pi) => {
           const p = Storage.getPlayer(pid);
           const isCap = pi === 0;
           const selected = ui.swapSelection &&
@@ -395,13 +431,11 @@ function handleSwapClick(teamIdx, playerIdx) {
     if (a.teamIdx === b.teamIdx && a.playerIdx === b.playerIdx) {
       ui.swapSelection = null;  // deselect
     } else {
-      // Swap
       const tA = ui.pendingTeams[a.teamIdx];
       const tB = ui.pendingTeams[b.teamIdx];
       [tA.players[a.playerIdx], tB.players[b.playerIdx]] =
         [tB.players[b.playerIdx], tA.players[a.playerIdx]];
       ui.swapSelection = null;
-      // Re-plan with new teams
       planPendingTournament();
     }
   }
@@ -416,13 +450,17 @@ function renderFormatPreview() {
     return;
   }
   if (plan.error || !plan.fits) {
-    preview.innerHTML = `<div class="error-msg">⚠️ ${plan.reason || plan.error || '方案不可行'}</div>`;
+    const reason = translateFormatReason(plan.reason) || plan.error || '';
+    preview.innerHTML = `<div class="error-msg">${escapeHtml(t('teams.format.infeasible', { reason }))}</div>`;
     return;
   }
 
-  const fmt = plan.format === 'groups-knockout'
-    ? `小组赛 + 淘汰赛 (小组: ${plan.group_sizes.join('/')}, 淘汰: ${plan.knockout_size}强)`
-    : '单循环赛';
+  const fmtText = plan.format === 'groups-knockout'
+    ? t('teams.format.groups_knockout', {
+        groups: plan.group_sizes.join('/'),
+        n: plan.knockout_size,
+      })
+    : t('teams.format.round_robin');
 
   const d = parseInt(document.getElementById('match-duration').value, 10) || 15;
   const totalMin = plan.slotsUsed * d;
@@ -430,12 +468,28 @@ function renderFormatPreview() {
     (s, slot) => s + slot.matches.filter(m => m.kind === 'ranked').length, 0);
 
   preview.innerHTML = `
-    <div class="preview-title">📋 推荐赛制</div>
-    <div class="preview-main">${fmt}</div>
+    <div class="preview-title">${escapeHtml(t('teams.format.recommended'))}</div>
+    <div class="preview-main">${escapeHtml(fmtText)}</div>
     <div class="preview-sub">
-      ${rankedCount} 场正赛 · ${plan.slotsUsed} 个时间段 · 约 ${totalMin} 分钟
+      ${escapeHtml(t('teams.format.stats', { ranked: rankedCount, slots: plan.slotsUsed, min: totalMin }))}
     </div>
   `;
+}
+
+// Map scheduler.js reason strings (which are still hardcoded Chinese for
+// historical reasons) to translation keys.
+function translateFormatReason(reason) {
+  if (!reason) return '';
+  const map = {
+    '时间不足': 'format.out_of_time',
+    '队伍太少': 'format.not_enough_teams',
+    '小组赛超时': 'format.group_too_long',
+    '淘汰赛超时': 'format.ko_too_long',
+    '时间不足以完成小组赛+淘汰赛': 'format.groups_not_feasible',
+    '至少需要2支队伍': 'format.need_two_teams',
+  };
+  const key = map[reason];
+  return key ? t(key) : reason;
 }
 
 function planPendingTournament() {
@@ -459,25 +513,25 @@ function renderTournament() {
   const done = Object.keys(ev.results || {}).length;
   document.getElementById('tournament-progress').innerHTML = `
     <div class="progress-bar"><div class="progress-fill" style="width:${total ? (done / total * 100) : 0}%"></div></div>
-    <div class="progress-text">${done} / ${total} 场已完成</div>
+    <div class="progress-text">${escapeHtml(t('tour.progress', { done, total }))}</div>
   `;
 
   // Schedule
   const scheduleDiv = document.getElementById('tournament-schedule');
   scheduleDiv.innerHTML = ev.plan.schedule.map((slot, slotIdx) => {
     const phaseTag = phaseDisplay(slot.phase);
+    const roundText = typeof slot.round === 'string' ? slot.round : t('tour.round.num', { n: slot.round });
     return `
       <div class="slot-card">
         <div class="slot-head">
-          <span class="slot-num">时间段 ${slot.slot}</span>
-          <span class="slot-phase">${phaseTag} ${typeof slot.round === 'string' ? slot.round : '第' + slot.round + '轮'}</span>
+          <span class="slot-num">${escapeHtml(t('tour.slot', { n: slot.slot }))}</span>
+          <span class="slot-phase">${escapeHtml(phaseTag)} ${escapeHtml(roundText)}</span>
         </div>
         ${slot.matches.map(m => renderMatch(m, slotIdx, ev)).join('')}
       </div>
     `;
   }).join('');
 
-  // Bind result buttons
   scheduleDiv.querySelectorAll('[data-result-btn]').forEach(btn => {
     btn.onclick = () => {
       const [slotIdx, court, res] = btn.dataset.resultBtn.split(':');
@@ -485,13 +539,17 @@ function renderTournament() {
     };
   });
 
-  // Show finish button if all ranked matches have results
   const finishBtn = document.getElementById('btn-finish-tournament');
   finishBtn.classList.toggle('hidden', done < total);
 }
 
 function phaseDisplay(phase) {
-  return { 'group': '小组赛', 'knockout': '淘汰赛', 'round-robin': '循环赛' }[phase] || phase;
+  const map = {
+    'group': 'tour.phase.group',
+    'knockout': 'tour.phase.knockout',
+    'round-robin': 'tour.phase.round_robin',
+  };
+  return t(map[phase] || phase);
 }
 
 function renderMatch(match, slotIdx, ev) {
@@ -503,8 +561,8 @@ function renderMatch(match, slotIdx, ev) {
   if (match.kind === 'friendly') {
     return `
       <div class="match-row friendly">
-        <div class="court-label">场地 ${match.court} · 自由场</div>
-        <div class="friendly-note">被淘汰的队伍可在此场地自由组队比赛（不计积分）</div>
+        <div class="court-label">${escapeHtml(t('tour.court.friendly', { n: match.court }))}</div>
+        <div class="friendly-note">${escapeHtml(t('tour.friendly.note'))}</div>
       </div>
     `;
   }
@@ -512,51 +570,49 @@ function renderMatch(match, slotIdx, ev) {
   const btnCls = r => `result-btn ${result === r ? 'active' : ''}`;
   return `
     <div class="match-row">
-      <div class="court-label">场地 ${match.court}</div>
+      <div class="court-label">${escapeHtml(t('tour.court', { n: match.court }))}</div>
       <div class="match-teams">
-        <div class="match-team ${result === 'A' ? 'winner' : ''}">${escapeHtml(ta.name)}<div class="match-members">${ta.members}</div></div>
-        <div class="vs">VS</div>
-        <div class="match-team ${result === 'B' ? 'winner' : ''}">${escapeHtml(tb.name)}<div class="match-members">${tb.members}</div></div>
+        <div class="match-team ${result === 'A' ? 'winner' : ''}">${escapeHtml(ta.name)}<div class="match-members">${escapeHtml(ta.members)}</div></div>
+        <div class="vs">${escapeHtml(t('tour.vs'))}</div>
+        <div class="match-team ${result === 'B' ? 'winner' : ''}">${escapeHtml(tb.name)}<div class="match-members">${escapeHtml(tb.members)}</div></div>
       </div>
       <div class="result-btns">
-        <button class="${btnCls('A')}" data-result-btn="${slotIdx}:${match.court}:A">A胜</button>
-        <button class="${btnCls('D')}" data-result-btn="${slotIdx}:${match.court}:D">平局</button>
-        <button class="${btnCls('B')}" data-result-btn="${slotIdx}:${match.court}:B">B胜</button>
+        <button class="${btnCls('A')}" data-result-btn="${slotIdx}:${match.court}:A">${escapeHtml(t('tour.result.a'))}</button>
+        <button class="${btnCls('D')}" data-result-btn="${slotIdx}:${match.court}:D">${escapeHtml(t('tour.result.d'))}</button>
+        <button class="${btnCls('B')}" data-result-btn="${slotIdx}:${match.court}:B">${escapeHtml(t('tour.result.b'))}</button>
       </div>
     </div>
   `;
 }
 
 function resolveTeamDisplay(ref, ev) {
+  const sep = t('text.name.separator');
   if (ref === null) return { name: '-', members: '' };
   if (typeof ref === 'number') {
-    const t = ev.teams[ref];
-    if (!t) return { name: '?', members: '' };
-    const members = t.players
+    const team = ev.teams[ref];
+    if (!team) return { name: '?', members: '' };
+    const members = team.players
       .map(pid => Storage.getPlayer(pid)?.name || '?')
-      .join(', ');
-    return { name: t.name, members };
+      .join(sep);
+    return { name: team.name, members };
   }
   // Placeholder: try to resolve dynamically
   const resolved = Storage._helpers.resolvePlaceholder(ref, ev);
   if (resolved) {
     const members = resolved.players
       .map(pid => Storage.getPlayer(pid)?.name || '?')
-      .join(', ');
+      .join(sep);
     return { name: resolved.name, members };
   }
-  return { name: placeholderLabel(ref), members: '待定' };
+  return { name: placeholderLabel(ref), members: '' };
 }
 
 function placeholderLabel(ref) {
-  if (ref.startsWith('G')) {
-    const m = ref.match(/^G(\d+)-(\d+)$/);
-    if (m) return `小组${m[1]} 第${m[2]}名`;
-  }
-  if (ref.startsWith('KR')) {
-    const m = ref.match(/^KR(\d+)-M(\d+)-W$/);
-    if (m) return `KR${m[1]}-M${m[2]} 胜者`;
-  }
+  if (typeof ref !== 'string') return String(ref);
+  let m = ref.match(/^G(\d+)-(\d+)$/);
+  if (m) return t('placeholder.group_rank', { g: m[1], r: m[2] });
+  m = ref.match(/^KR(\d+)-M(\d+)-W$/);
+  if (m) return t('placeholder.kr_winner', { r: m[1], m: m[2] });
   return ref;
 }
 
@@ -566,7 +622,6 @@ function recordResult(slotIdx, court, result) {
   if (!ev.results) ev.results = {};
   const key = `${slotIdx}:${court}`;
   if (ev.results[key] === result) {
-    // Toggle off
     delete ev.results[key];
   } else {
     ev.results[key] = result;
@@ -587,7 +642,7 @@ function generateTeams() {
   const attendeeIds = Array.from(ui.selectedAttendees);
   const teamSize = parseInt(document.getElementById('team-size').value, 10) || 2;
   if (attendeeIds.length < teamSize * 2) {
-    alert(`至少需要 ${teamSize * 2} 人才能组队。`);
+    alert(t('setup.alert.need_players', { n: teamSize * 2 }));
     return;
   }
 
@@ -600,6 +655,11 @@ function generateTeams() {
     return;
   }
 
+  // Give teams localized default names ("Team 1" / "第1队" style)
+  result.teams.forEach((team, i) => {
+    team.name = t('team.default.name', { n: i + 1 });
+  });
+
   ui.pendingTeams = result.teams;
   ui.spectators = result.spectators || [];
   ui.swapMode = false;
@@ -611,7 +671,7 @@ function generateTeams() {
 
 function confirmStartTournament() {
   if (!ui.pendingPlan || !ui.pendingPlan.fits) {
-    alert('赛制方案不可行，请调整参数。');
+    alert(t('teams.format.infeasible', { reason: translateFormatReason(ui.pendingPlan?.reason) }));
     return;
   }
 
@@ -635,23 +695,21 @@ function confirmStartTournament() {
 function finishTournament() {
   const ev = Storage.getCurrentEvent();
   if (!ev) return;
-  if (!confirm('确认比赛结束？积分将写入数据库。')) return;
+  if (!confirm(t('tour.confirm.finish'))) return;
 
   try {
-    // Build summary before commit (reads currentEvent, which commit will null out)
     const summary = buildEventSummary(ev);
     Storage.commitEvent();
     document.getElementById('done-summary').innerHTML = summary;
     showView('done');
   } catch (e) {
     console.error('Finish tournament failed:', e);
-    alert('完成比赛时出错：' + (e.message || e));
+    alert(t('tour.error.finish', { msg: e.message || String(e) }));
   }
 }
 
 function buildEventSummary(ev) {
-  // Compute points earned per player this event
-  const earned = {};  // pid -> {points, w, d, l}
+  const earned = {};
   ev.attendees.forEach(pid => {
     earned[pid] = { points: 0, w: 0, d: 0, l: 0 };
   });
@@ -681,13 +739,13 @@ function buildEventSummary(ev) {
     .sort((a, b) => b.e.points - a.e.points);
 
   return `
-    <h3>本轮积分变化</h3>
+    <h3>${escapeHtml(t('done.delta.title'))}</h3>
     <div class="summary-list">
       ${rows.map(r => `
         <div class="summary-row">
           <span class="sr-name">${escapeHtml(r.player.name)}</span>
-          <span class="sr-delta">+${r.e.points} 分</span>
-          <span class="sr-wld">${r.e.w}胜 ${r.e.d}平 ${r.e.l}负</span>
+          <span class="sr-delta">${escapeHtml(t('done.delta.row', { pts: r.e.points }))}</span>
+          <span class="sr-wld">${escapeHtml(fmtWLD({ wins: r.e.w, draws: r.e.d, losses: r.e.l }))}</span>
         </div>
       `).join('')}
     </div>
@@ -709,28 +767,23 @@ function resolveTeamForSummary(ref, ev) {
 function handleResetExpenses() {
   const total = Storage.getTotalSpent();
   if (total === 0 && !Storage.hasExpenseBackup()) {
-    alert('当前消费总额已为零。');
+    alert(t('expense.alert.already_zero'));
     return;
   }
-  // Double confirm
-  if (!confirm(`确定要将所有选手的累计消费清零吗？\n\n当前总额：${fmtMoney(total)}\n\n此操作可在下次比赛提交前恢复。`)) {
-    return;
-  }
-  if (!confirm('再次确认：清零？')) {
-    return;
-  }
+  if (!confirm(t('expense.confirm.reset1', { total: fmtMoney(total) }))) return;
+  if (!confirm(t('expense.confirm.reset2'))) return;
   Storage.resetExpenses();
   renderHome();
   if (currentView === 'db') renderDB();
 }
 
 function handleUndoExpenses() {
-  if (!confirm('恢复上次清零前的消费数据？')) return;
+  if (!confirm(t('expense.confirm.undo'))) return;
   if (Storage.undoExpenseReset()) {
     renderHome();
     if (currentView === 'db') renderDB();
   } else {
-    alert('无可恢复的数据。');
+    alert(t('expense.alert.nothing_to_undo'));
   }
 }
 
@@ -738,44 +791,54 @@ function handleUndoExpenses() {
 function buildScheduleText(teams, plan, opts = {}) {
   const { date, matchDuration, expense } = opts;
   const lines = [];
-  lines.push('🏆 MatchMaker 比赛安排' + (date ? ` · ${date}` : ''));
+  lines.push(date ? t('text.header', { date }) : t('text.header.no_date'));
   lines.push('');
 
   // Teams
-  lines.push(`【队伍】共 ${teams.length} 队`);
-  teams.forEach(t => {
-    const names = t.players
+  const sep = t('text.name.separator');
+  lines.push(t('text.teams.header', { n: teams.length }));
+  teams.forEach(team => {
+    const names = team.players
       .map(pid => Storage.getPlayer(pid)?.name || '?')
-      .join('、');
-    lines.push(`· ${t.name}：${names}`);
+      .join(sep);
+    lines.push(t('text.team.line', { name: team.name, players: names }));
   });
   lines.push('');
 
   // Format
   const fmt = plan.format === 'groups-knockout'
-    ? `小组赛 + ${plan.knockout_size}强淘汰`
-    : '循环赛';
-  lines.push(`【赛制】${fmt}`);
+    ? t('teams.format.groups_knockout', {
+        groups: plan.group_sizes.join('/'),
+        n: plan.knockout_size,
+      })
+    : t('teams.format.round_robin');
+  lines.push(t('text.format.header', { fmt }));
   lines.push('');
 
   // Schedule
-  lines.push('【赛程】');
+  lines.push(t('text.schedule.header'));
   const evLike = { plan, teams, results: {} };
   const dur = matchDuration || 0;
   plan.schedule.forEach((slot) => {
     const startMin = (slot.slot - 1) * dur;
     const endMin = startMin + dur;
-    const timeStr = dur > 0 ? ` (${fmtMin(startMin)}-${fmtMin(endMin)})` : '';
+    const timeStr = dur > 0
+      ? t('text.slot.time', { start: fmtMin(startMin), end: fmtMin(endMin) })
+      : '';
     const phaseText = phaseDisplay(slot.phase);
-    const roundText = typeof slot.round === 'string' ? slot.round : `第${slot.round}轮`;
-    lines.push(`━━ 时段${slot.slot}${timeStr} · ${phaseText}${roundText} ━━`);
+    const roundText = typeof slot.round === 'string'
+      ? slot.round
+      : t('tour.round.num', { n: slot.round });
+    lines.push(t('text.slot.header', {
+      n: slot.slot, time: timeStr, phase: phaseText, round: roundText,
+    }));
     slot.matches.forEach(m => {
       if (m.kind === 'friendly') {
-        lines.push(`  📍 场地${m.court}：自由场（淘汰队伍友谊赛）`);
+        lines.push(t('text.friendly.line', { n: m.court }));
       } else {
         const aName = scheduleTeamName(m.team_a, evLike);
         const bName = scheduleTeamName(m.team_b, evLike);
-        lines.push(`  📍 场地${m.court}：${aName} vs ${bName}`);
+        lines.push(t('text.court.line', { n: m.court, a: aName, b: bName }));
       }
     });
     lines.push('');
@@ -785,13 +848,13 @@ function buildScheduleText(teams, plan, opts = {}) {
   const rankedCount = plan.schedule.reduce(
     (s, slot) => s + slot.matches.filter(m => m.kind === 'ranked').length, 0);
   const totalMin = plan.slotsUsed * dur;
-  lines.push(`共 ${rankedCount} 场正赛 · ${plan.slotsUsed} 时段 · 约 ${totalMin} 分钟`);
+  lines.push(t('text.summary', { ranked: rankedCount, slots: plan.slotsUsed, min: totalMin }));
 
   if (expense > 0) {
-    const perHead = teams.reduce((s, t) => s + t.players.length, 0);
+    const perHead = teams.reduce((s, team) => s + team.players.length, 0);
     const share = perHead > 0 ? (expense / perHead) : 0;
     lines.push('');
-    lines.push(`💰 本周消费：${fmtMoney(expense)}（人均 ${fmtMoney(share)}）`);
+    lines.push(t('text.expense.line', { total: fmtMoney(expense), share: fmtMoney(share) }));
   }
 
   return lines.join('\n');
@@ -801,11 +864,12 @@ function scheduleTeamName(ref, evLike) {
   if (typeof ref === 'number') {
     return evLike.teams[ref]?.name || '?';
   }
-  // Placeholder (knockout) — always show the pretty label in the shared text
-  // form. Resolving with a partial/empty results map would give misleading
-  // "insertion-order" names (e.g. "Team 1 vs Team 2") that look like real
-  // matchups. Users sharing schedules typically do so pre-tournament, so the
-  // placeholder label is both safer and more informative.
+  // Placeholder — always show the pretty label in the shared text form.
+  // Resolving with a partial/empty results map would give misleading
+  // "insertion-order" names (e.g. "Team 1 vs Team 2") that look like
+  // real matchups. Users sharing schedules typically do so
+  // pre-tournament, so the placeholder label is both safer and more
+  // informative.
   return placeholderLabel(ref);
 }
 
@@ -822,7 +886,9 @@ async function copyText(text) {
       return true;
     }
   } catch (e) { /* fall through */ }
-  // Fallback: hidden textarea + execCommand
+  // Fallback: hidden textarea + execCommand for browsers without the
+  // modern Clipboard API. execCommand is deprecated but still works
+  // almost everywhere and is the only option on some older iOS Safari.
   try {
     const ta = document.createElement('textarea');
     ta.value = text;
@@ -840,7 +906,7 @@ async function copyText(text) {
 
 async function handleCopyScheduleFromTeams() {
   if (!ui.pendingTeams || !ui.pendingPlan || !ui.pendingPlan.fits) {
-    alert('请先生成有效的比赛方案。');
+    alert(t('copy.need_plan'));
     return;
   }
   const text = buildScheduleText(ui.pendingTeams, ui.pendingPlan, {
@@ -849,13 +915,13 @@ async function handleCopyScheduleFromTeams() {
     expense: parseFloat(document.getElementById('weekly-expense').value) || 0,
   });
   const ok = await copyText(text);
-  alert(ok ? '✓ 比赛安排已复制到剪贴板，可直接粘贴到聊天软件。' : '复制失败，请手动复制。');
+  alert(ok ? t('copy.success') : t('copy.failure'));
 }
 
 async function handleCopyScheduleFromTournament() {
   const ev = Storage.getCurrentEvent();
   if (!ev || !ev.plan) {
-    alert('没有正在进行的比赛。');
+    alert(t('copy.no_tournament'));
     return;
   }
   const text = buildScheduleText(ev.teams, ev.plan, {
@@ -864,7 +930,7 @@ async function handleCopyScheduleFromTournament() {
     expense: ev.expense || 0,
   });
   const ok = await copyText(text);
-  alert(ok ? '✓ 比赛安排已复制到剪贴板，可直接粘贴到聊天软件。' : '复制失败，请手动复制。');
+  alert(ok ? t('copy.success') : t('copy.failure'));
 }
 
 /* ─── Import / Export ───────────────────────────────────────── */
@@ -884,27 +950,26 @@ function handleExport() {
 
 function handleImport(e) {
   const file = e.target.files && e.target.files[0];
-  e.target.value = '';  // reset so same file can be imported again
+  e.target.value = '';
   if (!file) return;
 
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const text = String(reader.result);
-      // Preview counts before confirming
       const parsed = JSON.parse(text);
       const pCount = parsed.players ? Object.keys(parsed.players).length : 0;
       const hCount = Array.isArray(parsed.history) ? parsed.history.length : 0;
-      const msg = `导入将覆盖现有数据：\n  ${pCount} 个选手\n  ${hCount} 条历史记录\n\n确认继续？`;
+      const msg = t('io.import.confirm', { players: pCount, history: hCount });
       if (!confirm(msg)) return;
       Storage.importJSON(text);
-      alert('导入成功。');
+      alert(t('io.import.success'));
       showView('home');
     } catch (err) {
-      alert('导入失败：' + (err.message || err));
+      alert(t('io.import.error', { msg: err.message || String(err) }));
     }
   };
-  reader.onerror = () => alert('读取文件失败。');
+  reader.onerror = () => alert(t('io.read.error'));
   reader.readAsText(file);
 }
 
@@ -917,6 +982,18 @@ function escapeHtml(s) {
 
 /* ─── Event Wiring ──────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
+  // Initialize i18n first — applies static string translations to the DOM.
+  I18N.init();
+
+  // Language selector
+  const langSel = document.getElementById('lang-select');
+  langSel.value = I18N.getLang();
+  langSel.addEventListener('change', () => {
+    if (I18N.set(langSel.value)) {
+      rerenderCurrentView();
+    }
+  });
+
   // Home
   document.getElementById('btn-start-event').onclick = startNewEvent;
   document.getElementById('btn-goto-db').onclick = () => showView('db');
@@ -945,7 +1022,7 @@ document.addEventListener('DOMContentLoaded', () => {
       input.value = '';
       renderDB();
     } else {
-      alert('姓名为空或已存在。');
+      alert(t('db.alert.add_failed'));
     }
   };
   document.getElementById('new-player-name').addEventListener('keypress', e => {
@@ -962,7 +1039,7 @@ document.addEventListener('DOMContentLoaded', () => {
       input.value = '';
       renderSetup();
     } else {
-      alert('姓名为空或已存在。');
+      alert(t('db.alert.add_failed'));
     }
   };
   document.getElementById('quick-add-player').addEventListener('keypress', e => {
@@ -974,7 +1051,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-swap-mode').onclick = () => {
     ui.swapMode = !ui.swapMode;
     ui.swapSelection = null;
-    document.getElementById('btn-swap-mode').textContent = ui.swapMode ? '✓ 完成调整' : '🔀 手动调整';
     renderTeams();
   };
   document.getElementById('btn-start-tournament').onclick = confirmStartTournament;

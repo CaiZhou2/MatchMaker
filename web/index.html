@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#1a73e8">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>MatchMaker - 杯赛助手</title>
+  <title data-i18n="app.title">MatchMaker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏆</text></svg>">
   <link rel="stylesheet" href="style.css">
@@ -15,8 +15,14 @@
   <div id="app">
     <!-- ─── Header ──────────────────────────────────────── -->
     <header class="header">
-      <h1>🏆 MatchMaker</h1>
-      <p class="subtitle">每周杯赛助手</p>
+      <div class="header-lang">
+        <select id="lang-select" aria-label="Language">
+          <option value="zh-CN">简体中文</option>
+          <option value="en-US">English</option>
+        </select>
+      </div>
+      <h1 data-i18n="app.header">🏆 MatchMaker</h1>
+      <p class="subtitle" data-i18n="app.subtitle"></p>
     </header>
 
     <!-- ═══════════════════════════════════════════════════ -->
@@ -24,36 +30,36 @@
     <!-- ═══════════════════════════════════════════════════ -->
     <section class="view" id="view-home">
       <div class="card">
-        <h2>主页</h2>
+        <h2 data-i18n="home.title"></h2>
         <div id="home-stats" class="home-stats"></div>
-        <button class="btn-primary" id="btn-start-event">开始本周比赛</button>
+        <button class="btn-primary" id="btn-start-event" data-i18n="home.btn.start"></button>
         <div class="btn-row">
-          <button class="btn-secondary" id="btn-goto-db">选手数据库</button>
-          <button class="btn-secondary" id="btn-goto-history">历史记录</button>
+          <button class="btn-secondary" id="btn-goto-db" data-i18n="home.btn.db"></button>
+          <button class="btn-secondary" id="btn-goto-history" data-i18n="home.btn.history"></button>
         </div>
-        <button class="btn-text full-width" id="btn-resume-event" style="display:none;">继续上次未完成的比赛 →</button>
+        <button class="btn-text full-width" id="btn-resume-event" style="display:none;"></button>
       </div>
 
       <div class="card" id="home-leaderboard-card">
         <div class="tab-bar">
-          <button class="tab-btn active" data-tab="points">积分榜</button>
-          <button class="tab-btn" data-tab="winrate">胜率榜</button>
-          <button class="tab-btn" data-tab="spent">消费榜</button>
+          <button class="tab-btn active" data-tab="points" data-i18n="home.tab.points"></button>
+          <button class="tab-btn" data-tab="winrate" data-i18n="home.tab.winrate"></button>
+          <button class="tab-btn" data-tab="spent" data-i18n="home.tab.spent"></button>
         </div>
         <div id="home-leaderboard"></div>
       </div>
 
       <div class="card" id="home-expense-card">
-        <h2>消费统计</h2>
+        <h2 data-i18n="expense.title"></h2>
         <div class="expense-summary">
           <div class="expense-total">
-            <span class="lbl">累计总消费</span>
+            <span class="lbl" data-i18n="expense.total"></span>
             <span class="val" id="expense-total">¥0.00</span>
           </div>
         </div>
         <div class="btn-row">
-          <button class="btn-secondary" id="btn-reset-expenses">🗑 清零消费</button>
-          <button class="btn-secondary hidden" id="btn-undo-expenses">↩ 恢复上次数据</button>
+          <button class="btn-secondary" id="btn-reset-expenses" data-i18n="expense.reset"></button>
+          <button class="btn-secondary hidden" id="btn-undo-expenses" data-i18n="expense.undo"></button>
         </div>
         <div class="hint" id="expense-hint"></div>
       </div>
@@ -65,28 +71,28 @@
     <section class="view hidden" id="view-db">
       <div class="card">
         <div class="view-header">
-          <button class="btn-back" data-goto="home">← 返回</button>
-          <h2>选手数据库</h2>
+          <button class="btn-back" data-goto="home" data-i18n="common.back"></button>
+          <h2 data-i18n="db.title"></h2>
         </div>
 
         <div class="form-group">
-          <label>添加选手</label>
+          <label data-i18n="db.add.label"></label>
           <div class="inline-input">
-            <input type="text" id="new-player-name" placeholder="输入姓名">
-            <button class="btn-small" id="btn-add-player">添加</button>
+            <input type="text" id="new-player-name" data-i18n-ph="db.add.placeholder">
+            <button class="btn-small" id="btn-add-player" data-i18n="common.add"></button>
           </div>
         </div>
 
         <div id="db-player-list"></div>
 
         <div class="io-section">
-          <h3>数据导入 / 导出</h3>
+          <h3 data-i18n="db.io.title"></h3>
           <div class="btn-row">
-            <button class="btn-secondary" id="btn-export">📤 导出 JSON</button>
-            <button class="btn-secondary" id="btn-import">📥 导入 JSON</button>
+            <button class="btn-secondary" id="btn-export" data-i18n="db.io.export"></button>
+            <button class="btn-secondary" id="btn-import" data-i18n="db.io.import"></button>
           </div>
           <input type="file" id="import-file" accept=".json,application/json" style="display:none;">
-          <div class="hint">导出包含全部选手、比赛历史和未完成比赛。导入会覆盖现有数据。</div>
+          <div class="hint" data-i18n="db.io.hint"></div>
         </div>
       </div>
     </section>
@@ -97,8 +103,8 @@
     <section class="view hidden" id="view-history">
       <div class="card">
         <div class="view-header">
-          <button class="btn-back" data-goto="home">← 返回</button>
-          <h2>历史记录</h2>
+          <button class="btn-back" data-goto="home" data-i18n="common.back"></button>
+          <h2 data-i18n="hist.title"></h2>
         </div>
         <div id="history-list"></div>
       </div>
@@ -110,54 +116,54 @@
     <section class="view hidden" id="view-setup">
       <div class="card">
         <div class="view-header">
-          <button class="btn-back" data-goto="home">← 返回</button>
-          <h2>本周比赛设置</h2>
+          <button class="btn-back" data-goto="home" data-i18n="common.back"></button>
+          <h2 data-i18n="setup.title"></h2>
         </div>
 
         <div class="form-group">
-          <label>1. 选择本周参赛选手</label>
-          <div class="hint">已选 <span id="attendee-count">0</span> 人</div>
+          <label data-i18n="setup.section.attendees"></label>
+          <div class="hint" id="attendee-count-hint"></div>
           <div id="attendee-list" class="attendee-list"></div>
           <div class="inline-input" style="margin-top:8px;">
-            <input type="text" id="quick-add-player" placeholder="快速添加新选手">
-            <button class="btn-small" id="btn-quick-add">添加</button>
+            <input type="text" id="quick-add-player" data-i18n-ph="setup.attendees.quickadd.placeholder">
+            <button class="btn-small" id="btn-quick-add" data-i18n="common.add"></button>
           </div>
         </div>
 
         <div class="form-group">
-          <label>2. 比赛参数</label>
+          <label data-i18n="setup.section.params"></label>
           <div class="form-row">
             <div class="form-group">
-              <label class="label-sub">每队人数</label>
+              <label class="label-sub" data-i18n="setup.params.team_size"></label>
               <input type="number" id="team-size" value="2" min="1" max="11">
             </div>
             <div class="form-group">
-              <label class="label-sub">场地数</label>
+              <label class="label-sub" data-i18n="setup.params.courts"></label>
               <input type="number" id="num-courts" value="2" min="1" max="20">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="label-sub">每场时长（分）</label>
+              <label class="label-sub" data-i18n="setup.params.duration"></label>
               <input type="number" id="match-duration" value="15" min="1" max="300">
             </div>
             <div class="form-group">
-              <label class="label-sub">总时间（分）</label>
+              <label class="label-sub" data-i18n="setup.params.total"></label>
               <input type="number" id="total-time" value="180" min="1" max="1440">
             </div>
           </div>
         </div>
 
         <div class="form-group">
-          <label>3. 本周消费</label>
+          <label data-i18n="setup.section.expense"></label>
           <div class="inline-input">
             <span class="currency-symbol">¥</span>
             <input type="number" id="weekly-expense" value="0" min="0" step="0.01" placeholder="0">
           </div>
-          <div class="hint">将均摊到本周所有参赛人员</div>
+          <div class="hint" data-i18n="setup.expense.hint"></div>
         </div>
 
-        <button class="btn-primary" id="btn-form-teams">生成队伍</button>
+        <button class="btn-primary" id="btn-form-teams" data-i18n="setup.btn.form"></button>
       </div>
     </section>
 
@@ -167,22 +173,22 @@
     <section class="view hidden" id="view-teams">
       <div class="card">
         <div class="view-header">
-          <button class="btn-back" data-goto="setup">← 返回</button>
-          <h2>队伍分组</h2>
+          <button class="btn-back" data-goto="setup" data-i18n="common.back"></button>
+          <h2 data-i18n="teams.title"></h2>
         </div>
 
         <div class="hint" id="teams-hint"></div>
         <div id="teams-display"></div>
 
         <div class="form-row" style="margin-top:12px;">
-          <button class="btn-secondary" id="btn-reshuffle">🔄 重新随机</button>
-          <button class="btn-secondary" id="btn-swap-mode">🔀 手动调整</button>
+          <button class="btn-secondary" id="btn-reshuffle" data-i18n="teams.btn.reshuffle"></button>
+          <button class="btn-secondary" id="btn-swap-mode" data-i18n="teams.btn.swap.start"></button>
         </div>
 
         <div class="card-inner" id="format-preview"></div>
 
-        <button class="btn-secondary" id="btn-copy-schedule-teams">📋 复制比赛安排</button>
-        <button class="btn-primary" id="btn-start-tournament">开始比赛</button>
+        <button class="btn-secondary" id="btn-copy-schedule-teams" data-i18n="teams.btn.copy"></button>
+        <button class="btn-primary" id="btn-start-tournament" data-i18n="teams.btn.start"></button>
       </div>
     </section>
 
@@ -192,15 +198,15 @@
     <section class="view hidden" id="view-tournament">
       <div class="card">
         <div class="view-header">
-          <button class="btn-back" data-goto="home">← 返回主页</button>
-          <h2>比赛进行中</h2>
+          <button class="btn-back" data-goto="home" data-i18n="common.back_home"></button>
+          <h2 data-i18n="tour.title"></h2>
         </div>
 
         <div id="tournament-progress" class="tournament-progress"></div>
-        <button class="btn-secondary" id="btn-copy-schedule-tour">📋 复制比赛安排</button>
+        <button class="btn-secondary" id="btn-copy-schedule-tour" data-i18n="tour.btn.copy"></button>
         <div id="tournament-schedule"></div>
 
-        <button class="btn-primary hidden" id="btn-finish-tournament">完成比赛 & 更新积分</button>
+        <button class="btn-primary hidden" id="btn-finish-tournament" data-i18n="tour.btn.finish"></button>
       </div>
     </section>
 
@@ -209,13 +215,14 @@
     <!-- ═══════════════════════════════════════════════════ -->
     <section class="view hidden" id="view-done">
       <div class="card">
-        <h2>🎉 比赛结束</h2>
+        <h2 data-i18n="done.title"></h2>
         <div id="done-summary"></div>
-        <button class="btn-primary" id="btn-done-home">返回主页</button>
+        <button class="btn-primary" id="btn-done-home" data-i18n="done.btn.home"></button>
       </div>
     </section>
   </div>
 
+  <script src="i18n.js"></script>
   <script src="storage.js"></script>
   <script src="scheduler.js"></script>
   <script src="app.js"></script>
