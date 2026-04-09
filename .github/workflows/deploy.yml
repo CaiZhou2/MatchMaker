@@ -1,0 +1,82 @@
+# Deploys the static PWA in `web/` to GitHub Pages on every push to main.
+#
+# One-time setup in your GitHub repo:
+#   1. Settings → Pages → "Build and deployment" → Source = "GitHub Actions"
+#   2. Settings → Actions → General → Workflow permissions = "Read and write"
+#      (or just rely on the per-job `permissions:` block below)
+#   3. Push to main and watch the Actions tab. First run takes ~30s.
+#
+# After the first deploy, your URL is:
+#   https://<owner>.github.io/<repo>/
+#
+# This is a "deploy from artifact" workflow — no gh-pages branch, no
+# `peaceiris/actions-gh-pages`, just the official `actions/deploy-pages`
+# action GitHub provides for this exact use case.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:  # also allow manual deploys from the Actions tab
+
+# Only one deploy at a time. If you push twice quickly, the second push
+# cancels the first deploy in progress (rather than queueing).
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read       # for checkout
+  pages: write         # to deploy
+  id-token: write      # for OIDC auth to Pages
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: JS unit tests
+        run: node --test tests/*.test.js
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Python algorithm tests
+        run: python3 tests/test_scheduler.py
+
+  build:
+    name: Build & upload artifact
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      # Upload the `web/` folder verbatim. No build step needed — the
+      # PWA is plain HTML/CSS/JS with no bundler.
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./web
+
+  deploy:
+    name: Deploy to Pages
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
