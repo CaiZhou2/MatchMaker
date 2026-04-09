@@ -21,6 +21,16 @@ MatchMaker is a small web app that lives in your phone's browser (no app store, 
 
 All data lives on **your phone only**. Nothing is uploaded to a server, no other organizer can see it.
 
+> 🤝 **Friendship first.** MatchMaker tries to make every match
+> *competitive*, not to figure out who's "actually the best".
+> Teams are drafted so the two sides have similar overall skill
+> (we use cumulative win rate as a simple Elo proxy), and in
+> friendly mode the algorithm explicitly cycles through three
+> match patterns — strong-vs-strong, weak-vs-weak, and mixed —
+> so over the course of an event everyone plays competitive
+> games against many different opponents instead of getting
+> stuck with the same crew or in lopsided blowouts.
+
 ---
 
 ## Step 1 — Install on your phone (one time, ~2 minutes)

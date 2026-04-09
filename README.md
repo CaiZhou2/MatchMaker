@@ -181,12 +181,241 @@ Forward migrations live in `Storage._migrate()` — always additive so older sav
 
 ### Algorithm notes
 
-- **Balanced draft**: `T = floor(N / teamSize)`; top `T` players by win rate become captains (one per team); remaining players are shuffled and round-robin into teams. Tiebreakers for the ranking: games played desc, then random.
-- **Round-robin**: Berger/circle rotation, parallelized across available courts.
-- **Groups + knockout**: tries groups of 4, then 3; advances top 2 per group; builds a power-of-two knockout bracket. Reserves one court per knockout slot for friendly matches when the round has spare capacity.
-- **Pure single elimination**: standard tennis-style seeded bracket (`seedBracket()`) so the top seed and second seed end up on opposite halves and can only meet in the final. Requires the team count to be a power of 2 (2/4/8/16/32) — non-power-of-2 counts are explicitly rejected so the user picks a different mode rather than getting an awkward bye structure.
-- **Friendly mode** (`planFriendly`): wraps `planRandomFairFallback` and stamps every match as `kind: 'friendly'`. `commitEvent`'s accumulator passes `countPoints=false` for friendly matches — they update wins / draws / losses (so the win-rate leaderboard and head-to-head reflect them) but never award tournament points (so the points leaderboard is unaffected). The same rule applies in the head-to-head walker and history detail.
-- **Mode dispatch**: a single `planByMode(mode, opts)` entry point routes to the right planner. The `auto` mode preserves the historical "smart pick" behaviour (groups+knockout → round-robin → friendly). The other four modes are explicit — if the chosen mode is infeasible, the UI alerts and refuses to proceed (no silent fallback).
+> **Friendship first.** Every team-formation and match-pairing
+> algorithm in MatchMaker exists to make matches *competitive* —
+> not to determine "who's actually the best". The goal is that two
+> teams with similar overall skill (loose Elo proxy = win rate)
+> end up across the net from each other so the games are fun for
+> everyone, not blowouts. When that's not possible (small roster,
+> skewed skill distribution), we degrade gracefully toward
+> "everyone plays roughly equally and nobody sits around bored",
+> and explicitly never toward "the strongest player gets the most
+> points".
+
+#### Skill estimate: cumulative win rate
+
+The skill signal used everywhere is each player's cumulative win
+rate from the persistent player database — `wins / (wins + draws +
+losses)`, with games-played as a tiebreaker for the ranking sort.
+This is a deliberately simple, transparent Elo proxy. We don't
+maintain an actual Elo rating because the player database is
+small-group / weekly-event scale where the simpler signal works
+well and is easy for users to reason about.
+
+#### `formBalancedTeams` — fixed weekly teams (cup formats)
+
+Used by every cup format (groups+knockout, round-robin, single
+elimination). Forms `T = floor(N / teamSize)` teams from the
+ranked attendees in two phases:
+
+1. **Snake-draft phase** for the top half (ranks `0..⌊N/2⌋ − 1`).
+   Walks ranks in serpentine fantasy-draft order:
+   - round 0 (forward):  rank 0 → T0, rank 1 → T1, ..., rank T−1 → T_{T−1}
+   - round 1 (backward): rank T → T_{T−1}, rank T+1 → T_{T−2}, ...
+   - round 2 (forward):  ...
+
+   This places the highest-WR captains as `team[i].players[0]`
+   (so display + manual swap still treat them as "captains") and
+   then fills the rest of the top half such that the SUM of
+   top-half rank indices is as equal as possible across teams.
+   Worked example for 12 players × team_size 4:
+
+   ```
+   T0 picks: ranks {0, 5}  → rank-sum 5
+   T1 picks: ranks {1, 4}  → rank-sum 5
+   T2 picks: ranks {2, 3}  → rank-sum 5  ← perfectly balanced
+   ```
+
+2. **Random fill phase** for the bottom half (ranks `⌊N/2⌋..T·teamSize`).
+   Shuffle and round-robin into teams that still have empty slots.
+   Random distribution at this tier is fine because by definition
+   these are the lower-WR players; even an "unlucky" pick won't
+   create a major imbalance once the snake-balanced top half is
+   set.
+
+For `teamSize = 2` (the most common case) the snake phase only
+fills the top `T` captains and the bottom half is purely random
+— exactly the historical "captain + 1 random" rule. The snake
+matters mostly when team sizes grow (3, 4, 5+), where a pure
+random fill of `2T+` non-captain players could create wildly
+unbalanced teams.
+
+Spectators: if `N % teamSize > 0`, the leftover players sit out
+as "spectators". The user can adjust attendees on the setup view
+to land on a clean multiple.
+
+#### `planRoundRobin` — circle method
+
+Berger/circle method: `T − 1` rounds (T even) or `T` rounds (T
+odd, one team has a bye each round). Each round packs as many
+matches in parallel as the court count allows. `floor(T/2)`
+matches per round, slot count grows with the team count.
+
+#### `planGroupsKnockout` — groups + bracket
+
+Tries group sizes of 4 first, then 3, picking whichever produces
+a feasible plan within the time budget. Top 2 of each group
+advance. The advancing teams form a power-of-two knockout bracket
+(extras dropped from the lowest seeds if the count isn't a
+power of 2). During the knockout phase, **one court is reserved
+for free friendly matches** between eliminated teams whenever
+the round has spare capacity (`numCourts > matches needed in
+this round`). Eliminated players don't sit around bored.
+
+#### `planPureKnockout` — single elimination
+
+Standard tennis-seeded bracket via `seedBracket()`: top seed and
+second seed land on opposite halves so they can only meet in the
+final. **Requires the team count to be a power of 2** (2 / 4 / 8
+/ 16 / 32). Non-power-of-2 team counts are explicitly rejected so
+the user picks a different mode rather than getting an awkward
+bye structure. Knockout rounds also reserve a friendly court for
+eliminated teams.
+
+#### `planRandomFairFallback` / `planFriendly` — template-based per-match selection
+
+The most algorithmically elaborate planner, used by both the
+explicit Friendly mode and the Auto mode's last-resort fallback.
+There are no fixed weekly teams here — every match has its own
+ad-hoc cohort and team split.
+
+**The user-facing rule** (keeping the "friendship first" framing):
+
+1. Sort attendees by cumulative win rate. Top 50% = STRONG pool,
+   bottom 50% = WEAK pool.
+2. Each match picks one of `teamSize + 1` templates indexed by
+   `k` = strong-per-team count:
+   - `k = 0` → all-weak vs all-weak (`WW vs WW`)
+   - `k = teamSize` → all-strong vs all-strong (`SS vs SS`)
+   - intermediate `k` → mixed (`SW vs SW`, `SSW vs SSW`, etc.)
+
+   For `teamSize = 2` this is exactly the user's "三个模板" spec:
+   `WW-WW / SW-SW / SS-SS`. For larger team sizes the template
+   list extends naturally.
+3. The chosen template determines how many strong + weak players
+   are drawn from each pool. If the requested pool is short, the
+   deficit is filled from the other pool.
+4. Inside the match, strong players are distributed round-robin
+   across the teams and weak players are distributed snake-style,
+   so each team ends up with the right `k` strong + `(teamSize − k)`
+   weak split.
+
+**Three refinements on top of the basic template draw**:
+
+a. **Pool-balance bias** (equal participation). Before picking a
+   template, we compute the average game-count of the strong pool
+   vs the weak pool. If they're unequal, we **force the extreme
+   corrective template** — `k = teamSize` (all-strong) when
+   strong is under-played, `k = 0` (all-weak) when weak is. Mixed
+   templates can't actually close a participation gap because
+   they add to both pools equally; only the extremes do. This
+   keeps every player's match count even across the event when
+   the math allows it.
+
+b. **No-repeat tracking** (the user's "尽量不要出现 已经在同一个
+   场子出现过的相同的人 重新组合后出现在另一场" rule). Every
+   cohort generated this event is recorded in `allCohortKeys`
+   (sorted player-id string). When picking a new cohort, we
+   retry the template's selection a few times (the per-pool
+   greedy selector has random tiebreakers, so retries can
+   produce different SW combinations) and accept the first
+   cohort whose key isn't already used. SS-SS and WW-WW have
+   only one possible cohort each on small rosters, so each can
+   be used at most once per event before the no-repeat rule
+   forces a switch to SW. If even SW can't produce a fresh
+   cohort, the algorithm accepts the forced repeat — it's
+   mathematically unavoidable.
+
+c. **Cross-pool fallback** (the user's "群体不够的话再从剩下的人
+   中随机抽" rule). If the chosen pool is too small to fill the
+   template demand (e.g. on the second court of a slot, the
+   strong pool may already be partially used), the deficit is
+   drawn from the other pool. The exclusion logic is careful:
+   `pickFromPool` excludes players already in the running cohort
+   (not just the slot-wide used set), otherwise the cross-pool
+   fallback could re-pick a player already chosen on a previous
+   leg, producing duplicate-player matches. (This was a real
+   bug — see `tests/fallback.test.js` "no match has duplicate
+   players".)
+
+**Why a template approach instead of pure greedy snake?** A
+greedy "pick the 4 lowest-co-occurrence players, snake them by
+WR" approach (which the project tried before this rewrite) tends
+to cluster the same skill tier together every match, because
+when game counts are tied the WR ordering dominates. The
+template approach explicitly cycles through `WW / SW / SS`
+patterns, so over the course of an event the user sees ALL
+THREE shapes — strong-vs-strong skirmishes, weak-vs-weak rallies,
+and mixed pickup matches — instead of "the top 4 always playing
+each other".
+
+**Why is this still 'friendship first'?** Within a single match,
+the template structure guarantees both teams have the same
+strong-count and weak-count, so the two sides are balanced by
+construction. Pool-balance bias ensures everyone plays roughly
+the same number of matches. No-repeat tracking ensures the same
+4 people don't get stuck playing only with each other. The
+result: every match feels competitive, and over the course of
+the event everyone plays with and against many different
+opponents.
+
+#### Friendly result accounting
+
+`planFriendly` is a thin wrapper around `planRandomFairFallback`
+that stamps every match as `kind: 'friendly'`. `commitEvent`'s
+delta accumulator calls `accumulateDelta(..., countPoints=false)`
+for friendly matches: wins / draws / losses are still recorded
+(so the win-rate leaderboard, head-to-head records, and player
+detail stats reflect friendly results), but **no tournament
+points are awarded** — the points leaderboard is unaffected.
+The same rule propagates through `getHeadToHead`, the history
+detail view, and the post-event summary.
+
+#### Group standings tiebreaker
+
+`computeGroupTable` sorts by **points → score difference →
+deterministic random**. The "random" is a stable djb2 hash of
+`(team.id, event.date, groupIdx)`, so the resolved order is
+identical on every read (no flicker when re-rendering the
+tournament view) but doesn't degenerate to "lower team index
+wins" (which would be equivalent to no tiebreak at all).
+
+When a group becomes complete (every group match has a recorded
+result) AND has at least one tied position in its standings, the
+tournament view shows a one-time popup notice via
+`maybeShowTiebreakerNotices()`, explaining how the tie was
+resolved (score-diff ranking, or random if score-diff was also
+tied). Already-shown notices are persisted on
+`ev.tiebreakerNoticesShown` so editing a result later doesn't
+re-fire the popup.
+
+#### Group-completion gate for placeholder resolution
+
+Knockout matches in `planGroupsKnockout` are scheduled with
+placeholder team refs like `"G1-1"` (first place in group 1) and
+`"KR1-M2-W"` (winner of knockout round 1 match 2). These get
+resolved at render time by `resolvePlaceholder`. **The G-branch
+won't resolve until every match in that group has a recorded
+result** (`isGroupComplete` gate) — otherwise the standings
+would be a partial table where unplayed teams sit tied at 0 pts
+and the "winner" would just be `teams[0]`. Before the gate, the
+tournament view shows the human-readable label
+`小组1第1 / Group 1 #1` instead of leaking a fake team name.
+
+#### `planByMode` mode dispatch
+
+A single entry point routes to the right planner based on the
+user's setup-screen choice:
+
+- `auto` — tries `recommendFormat` (groups+knockout → round-robin)
+  first, then falls all the way through to `planFriendly` if
+  neither cup format fits the time budget. **Always finds
+  *something* the user can play**, even on tight budgets.
+- `groups-knockout`, `round-robin`, `knockout`, `friendly` —
+  explicit modes. If the chosen mode is infeasible, the UI alerts
+  the user with the specific reason and refuses to proceed (no
+  silent fallback). The user has to either change the mode or
+  adjust a parameter (more time, more courts, fewer attendees).
 
 ## Testing
 
