@@ -30,6 +30,10 @@ const TRANSLATIONS = {
     'app.header': '🏆 MatchMaker',
     'app.subtitle': '每周杯赛助手',
 
+    // ─── Update banner ───────────────────────────────────────
+    'update.available': '✨ 有新版本可用',
+    'update.reload': '立即更新',
+
     // ─── Common / buttons ────────────────────────────────────
     'common.back': '← 返回',
     'common.back_home': '← 返回主页',
@@ -245,6 +249,10 @@ const TRANSLATIONS = {
     'app.title': 'MatchMaker - Cup Assistant',
     'app.header': '🏆 MatchMaker',
     'app.subtitle': 'Weekly Cup Assistant',
+
+    // ─── Update banner ───────────────────────────────────────
+    'update.available': '✨ A new version is available',
+    'update.reload': 'Update now',
 
     // ─── Common / buttons ────────────────────────────────────
     'common.back': '← Back',

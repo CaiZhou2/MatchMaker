@@ -1437,6 +1437,11 @@ document.addEventListener('DOMContentLoaded', () => {
   applyTheme(document.documentElement.dataset.theme || 'light');
   document.getElementById('theme-toggle').onclick = toggleTheme;
 
+  // Update banner: hard-reload when user taps "立即更新".
+  document.getElementById('btn-update-reload').onclick = () => {
+    location.reload();
+  };
+
   // Language selector
   const langSel = document.getElementById('lang-select');
   langSel.value = I18N.getLang();
@@ -1585,7 +1590,65 @@ function toggleTheme() {
 // Apply ASAP, before DOMContentLoaded, to avoid a flash of light theme
 applyTheme(detectInitialTheme());
 
-/* ─── PWA ───────────────────────────────────────────────────── */
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+/* ─── PWA + Update Banner ───────────────────────────────────── */
+//
+// The Service Worker is "cache-first": users keep using the cached
+// version until a new SW is detected. The detection sequence is:
+//
+//   1. The browser fetches sw.js on each page load (HTTP-cached for at
+//      most 24h, but typically refetched). If the BYTES differ from the
+//      installed SW, the new SW enters install state.
+//   2. installing → installed (and the OLD SW is still controlling the
+//      page). At this point we know there's an update waiting.
+//   3. The new SW calls skipWaiting() (in our sw.js) and immediately
+//      becomes the active SW. clients.claim() then gives it control of
+//      open pages.
+//   4. The page itself is still rendering with the OLD code in memory.
+//      We need a reload to actually swap.
+//
+// Without a banner: the user has to manually close + reopen the app.
+// With this code: as soon as the new SW reaches "installed", we show
+// a banner with a single "立即更新 / Update now" button that calls
+// location.reload().
+function showUpdateBanner() {
+  const banner = document.getElementById('update-banner');
+  if (banner) banner.classList.remove('hidden');
 }
+
+function setupServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    // Update found while the page is open (e.g. user reloaded after a
+    // deploy and the browser fetched the new sw.js).
+    reg.addEventListener('updatefound', () => {
+      const newWorker = reg.installing;
+      if (!newWorker) return;
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          // Old SW is in control AND new SW is installed → real update
+          // (vs. first install on a fresh load, which has no controller)
+          showUpdateBanner();
+        }
+      });
+    });
+
+    // Also poll for updates periodically: if the user keeps the app open
+    // for hours, we want to know about a new deploy without waiting for
+    // them to manually refresh.
+    setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+  }).catch(() => {});
+
+  // Belt-and-suspenders: if the controller swaps (which happens after
+  // skipWaiting + clients.claim in sw.js), surface the banner too. This
+  // covers the case where the new SW reaches "activated" before our
+  // statechange listener was registered (e.g. SW already updating in
+  // another tab).
+  let controllerChanged = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (controllerChanged) return;
+    controllerChanged = true;
+    showUpdateBanner();
+  });
+}
+setupServiceWorker();
