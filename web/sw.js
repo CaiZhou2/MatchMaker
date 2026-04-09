@@ -1,4 +1,4 @@
-const CACHE_NAME = 'matchmaker-v7';
+const CACHE_NAME = 'matchmaker-v8';
 const ASSETS = [
   './',
   './index.html',

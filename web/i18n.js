@@ -191,7 +191,7 @@ const TRANSLATIONS = {
     'io.read.error': '读取文件失败。',
 
     // ─── Copy schedule ───────────────────────────────────────
-    'copy.success': '✓ 比赛安排已复制到剪贴板，可直接粘贴到聊天软件。',
+    'copy.success': '✓ 已复制到剪贴板，可直接粘贴到聊天软件。',
     'copy.failure': '复制失败，请手动复制。',
     'copy.need_plan': '请先生成有效的比赛方案。',
     'copy.no_tournament': '没有正在进行的比赛。',
@@ -399,7 +399,7 @@ const TRANSLATIONS = {
     'io.read.error': 'Failed to read file.',
 
     // ─── Copy schedule ───────────────────────────────────────
-    'copy.success': '✓ Schedule copied to clipboard. You can now paste it into any chat.',
+    'copy.success': '✓ Copied to clipboard. You can now paste it into any chat.',
     'copy.failure': 'Copy failed. Please copy manually.',
     'copy.need_plan': 'Generate a valid plan first.',
     'copy.no_tournament': 'No tournament in progress.',
