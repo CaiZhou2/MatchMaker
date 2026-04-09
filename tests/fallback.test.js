@@ -98,41 +98,11 @@ test('fallback: produces a feasible plan when cup format does not fit', () => {
   assert.equal(result.teams.length, 4);
 });
 
-test('fallback: each match has balanced teams (snake-drafted within cohort)', () => {
-  const h = createHarness();
-  // 4 players with very different skill levels: 100%, 75%, 50%, 25%
-  const map = buildPlayers(h, [
-    { name: 'A', w: 4, d: 0, l: 0 },  // 100% WR
-    { name: 'B', w: 3, d: 0, l: 1 },  // 75%
-    { name: 'C', w: 2, d: 0, l: 2 },  // 50%
-    { name: 'D', w: 1, d: 0, l: 3 },  // 25%
-  ]);
-
-  const result = h.planRandomFairFallback({
-    attendeeIds: Object.keys(map),
-    playersMap: map,
-    teamSize: 2,
-    teamsPerMatch: 2,
-    numCourts: 1,
-    matchDuration: 10,
-    totalTime: 10,  // exactly 1 slot, 1 match
-  });
-
-  assert.equal(result.fits, true);
-  assert.equal(result.teams.length, 2);
-
-  // Snake draft over [A, B, C, D] (sorted by WR desc):
-  //   round 0: pos 0 → team 0 (A), pos 1 → team 1 (B)
-  //   round 1: pos 0 → team 1 (C), pos 1 → team 0 (D)
-  //   → team 0 = [A, D]   (rank 1 + rank 4)
-  //   → team 1 = [B, C]   (rank 2 + rank 3)
-  // Both teams have one strong + one weak — fair.
-  const idOf = name => Object.keys(map).find(id => map[id].name === name);
-  const team0 = result.teams[0].players.sort();
-  const team1 = result.teams[1].players.sort();
-  assert.equal(team0.join(','), [idOf('A'), idOf('D')].sort().join(','));
-  assert.equal(team1.join(','), [idOf('B'), idOf('C')].sort().join(','));
-});
+// (The "snake-draft within cohort" test was removed when the
+// algorithm switched from greedy snake to template-based selection.
+// The "each match has the template structure" test below covers
+// the equivalent property — each team gets the same template
+// composition of strong + weak players.)
 
 test('fallback: equalises participation across many slots', () => {
   const h = createHarness();
@@ -206,21 +176,16 @@ test('fallback: never schedules a player twice in the same slot', () => {
   });
 });
 
-test('fallback: snake-draft within each cohort pairs extremes (best+worst vs mid+mid)', () => {
-  // Internal match fairness property: whatever cohort the selector
-  // chooses for a given court, the snake draft must pair the best
-  // and worst players from that cohort on one team, and the two
-  // middle players on the other. This is the optimal split for any
-  // 4 values: it minimises the rank-sum difference between the two
-  // teams. (For a cohort sorted [r0 < r1 < r2 < r3], the optimal
-  // split is {r0, r3} vs {r1, r2} regardless of how skewed the
-  // ranks are.)
+test('fallback: each match has the template structure (each team has same strong-count)', () => {
+  // The template-based algorithm guarantees that within a single
+  // match, both teams have the same number of strong-pool players
+  // (and the same number of weak-pool players). This is what makes
+  // the SS-SS / SW-SW / WW-WW templates the user asked for: each
+  // team has k strong + (T−k) weak.
   //
-  // Note: this does NOT assert that absolute team strengths are
-  // close — that depends on cohort composition, which may legitimately
-  // be skewed (e.g. one strong + three weak players, in which case
-  // even the best split is unbalanced). What we DO assert is that
-  // the algorithm always picks the best-of-a-bad-job split.
+  // We don't assert WHICH template was chosen for each match — that
+  // is randomised — but whatever template was used, both teams must
+  // have the same composition by tier.
   const h = createHarness();
   const map = buildPlayers(h, [
     { name: 'A', w: 10, d: 0, l: 0 },   // rank 0 (strongest)
@@ -233,11 +198,11 @@ test('fallback: snake-draft within each cohort pairs extremes (best+worst vs mid
     { name: 'H', w: 0,  d: 0, l: 10 },  // rank 7 (weakest)
   ]);
   const ids = Object.keys(map);
-  const rankOf = {};
-  ids.sort((a, b) => map[b].wins - map[a].wins).forEach((id, i) => { rankOf[id] = i; });
+  const sortedByWR = [...ids].sort((a, b) => map[b].wins - map[a].wins);
+  const strongPool = new Set(sortedByWR.slice(0, 4));
 
   const result = h.planRandomFairFallback({
-    attendeeIds: Object.keys(map),
+    attendeeIds: ids,
     playersMap: map,
     teamSize: 2,
     teamsPerMatch: 2,
@@ -249,16 +214,105 @@ test('fallback: snake-draft within each cohort pairs extremes (best+worst vs mid
 
   result.schedule.forEach(slot => {
     slot.matches.forEach(m => {
-      const teamARanks = result.teams[m.team_a].players.map(p => rankOf[p]);
-      const teamBRanks = result.teams[m.team_b].players.map(p => rankOf[p]);
-      const cohort = [...teamARanks, ...teamBRanks].sort((x, y) => x - y);
-      // The team that contains the best player (cohort[0]) should
-      // also contain the worst player (cohort[3]). That's snake.
-      const teamWithBest = teamARanks.includes(cohort[0]) ? teamARanks : teamBRanks;
-      assert.ok(teamWithBest.includes(cohort[3]),
-        `snake should pair best+worst on the same team. cohort=${cohort}, teamA=${teamARanks}, teamB=${teamBRanks}`);
+      const teamA = result.teams[m.team_a].players;
+      const teamB = result.teams[m.team_b].players;
+      const aStrong = teamA.filter(p => strongPool.has(p)).length;
+      const bStrong = teamB.filter(p => strongPool.has(p)).length;
+      // Both teams must have the same strong-count → both came from
+      // the same template.
+      assert.equal(aStrong, bStrong,
+        `template structure violated: team A has ${aStrong} strong, team B has ${bStrong} strong`);
     });
   });
+});
+
+test('fallback: no match has duplicate players (sanity check on cross-pool fallback)', () => {
+  // Regression for a bug where the cross-pool fallback path could
+  // re-pick a player who was already in the cohort, producing matches
+  // like "A+C vs C+A". Run a stress event and assert every cohort
+  // is exactly playersPerMatch unique players.
+  const h = createHarness();
+  const map = buildPlayers(h, [
+    { name: 'A', w: 10, d: 0, l: 0 },
+    { name: 'B', w: 9,  d: 0, l: 1 },
+    { name: 'C', w: 8,  d: 0, l: 2 },
+    { name: 'D', w: 7,  d: 0, l: 3 },
+    { name: 'E', w: 3,  d: 0, l: 7 },
+    { name: 'F', w: 2,  d: 0, l: 8 },
+    { name: 'G', w: 1,  d: 0, l: 9 },
+    { name: 'H', w: 0,  d: 0, l: 10 },
+  ]);
+
+  const result = h.planRandomFairFallback({
+    attendeeIds: Object.keys(map),
+    playersMap: map,
+    teamSize: 2,
+    teamsPerMatch: 2,
+    numCourts: 2,
+    matchDuration: 10,
+    totalTime: 80,  // 8 slots × 2 courts = 16 matches
+  });
+  assert.equal(result.fits, true);
+
+  result.schedule.forEach(slot => {
+    slot.matches.forEach(m => {
+      const cohort = [
+        ...result.teams[m.team_a].players,
+        ...result.teams[m.team_b].players,
+      ];
+      const unique = new Set(cohort);
+      assert.equal(unique.size, cohort.length,
+        `duplicate players in match (slot ${slot.slot} court ${m.court}): ${cohort}`);
+    });
+  });
+});
+
+test('fallback: produces all three template patterns over a typical event (k=0, k=1, k=2 for teamSize=2)', () => {
+  // The user's spec: "from three templates draw one — SS-SS / SW-SW
+  // / WW-WW". Across a multi-slot event, all three templates should
+  // appear at least sometimes (not always the same one). We don't
+  // require uniform distribution, just that no template is starved.
+  const h = createHarness();
+  const map = buildPlayers(h, [
+    { name: 'A', w: 10, d: 0, l: 0 },
+    { name: 'B', w: 9,  d: 0, l: 1 },
+    { name: 'C', w: 8,  d: 0, l: 2 },
+    { name: 'D', w: 7,  d: 0, l: 3 },
+    { name: 'E', w: 3,  d: 0, l: 7 },
+    { name: 'F', w: 2,  d: 0, l: 8 },
+    { name: 'G', w: 1,  d: 0, l: 9 },
+    { name: 'H', w: 0,  d: 0, l: 10 },
+  ]);
+  const ids = Object.keys(map);
+  const strongPool = new Set([...ids].sort((a, b) => map[b].wins - map[a].wins).slice(0, 4));
+
+  // Run several events and aggregate so we don't depend on a single
+  // unlucky random seed
+  const templateCounts = { 0: 0, 1: 0, 2: 0 };
+  for (let trial = 0; trial < 5; trial++) {
+    const result = h.planRandomFairFallback({
+      attendeeIds: ids,
+      playersMap: map,
+      teamSize: 2, teamsPerMatch: 2,
+      numCourts: 2, matchDuration: 10, totalTime: 80,
+    });
+    result.schedule.forEach(slot => {
+      slot.matches.forEach(m => {
+        const cohort = [
+          ...result.teams[m.team_a].players,
+          ...result.teams[m.team_b].players,
+        ];
+        const strongCount = cohort.filter(p => strongPool.has(p)).length;
+        const k = Math.round(strongCount / 2);
+        templateCounts[k]++;
+      });
+    });
+  }
+
+  // All three templates should appear at least once across 80 matches
+  assert.ok(templateCounts[0] > 0, `WW-WW template never appeared: ${JSON.stringify(templateCounts)}`);
+  assert.ok(templateCounts[1] > 0, `SW-SW template never appeared: ${JSON.stringify(templateCounts)}`);
+  assert.ok(templateCounts[2] > 0, `SS-SS template never appeared: ${JSON.stringify(templateCounts)}`);
 });
 
 test('fallback: cohorts mix tiers across the event (NOT pure tier clustering)', () => {
@@ -372,58 +426,51 @@ test('fallback: same 4 players do not form a cohort in two CONSECUTIVE slots', (
   }
 });
 
-test('fallback: pairwise co-occurrence stays bounded across many slots', () => {
-  // Stronger property than "no consecutive repeats": across the
-  // whole event, the pairwise co-occurrence counts should be roughly
-  // uniform. With 8 players and N matches per slot × M slots, the
-  // total cohort-pair-count is M × matches × C(playersPerMatch, 2),
-  // and the C(8,2) = 28 unique pairs should each get its share.
+test('fallback: with the SMALLEST possible roster, every player still gets diverse partners over time', () => {
+  // With a tight roster (8 players, 4 strong + 4 weak), templates
+  // SS-SS and WW-WW are FORCED to use the same 4 players every time
+  // they're picked — there's no other choice. The "尽量不要" rule
+  // accepts that as the math, but the algorithm should still ensure
+  // every player ends up with several DIFFERENT partners over the
+  // course of the event (not just the same teammate every time).
   //
-  // We assert that no single pair is "stuck" together — the max pair
-  // count shouldn't be more than 2× the average.
+  // We measure this by: for each player, count how many DISTINCT
+  // partners they ever played with. Across an 8-slot 2-court event
+  // (16 matches), every player should have played with at least 4
+  // different partners.
   const h = createHarness();
   const map = buildPlayers(h, Array.from({ length: 8 }, (_, i) => ({
     name: 'P' + i, w: 8 - i, d: 0, l: i,
   })));
+  const ids = Object.keys(map);
 
   const result = h.planRandomFairFallback({
-    attendeeIds: Object.keys(map),
+    attendeeIds: ids,
     playersMap: map,
-    teamSize: 2,
-    teamsPerMatch: 2,
-    numCourts: 2,
-    matchDuration: 10,
-    totalTime: 80,  // 8 slots × 2 courts = 16 matches
+    teamSize: 2, teamsPerMatch: 2,
+    numCourts: 2, matchDuration: 10, totalTime: 80,
   });
   assert.equal(result.fits, true);
 
-  // Tally per-pair co-occurrence (alphabetic key)
-  const pairCount = {};
+  // For each player, build a set of distinct partners (teammates)
+  const partners = {};
+  ids.forEach(id => { partners[id] = new Set(); });
   result.schedule.forEach(slot => {
     slot.matches.forEach(m => {
-      const cohort = [
-        ...result.teams[m.team_a].players,
-        ...result.teams[m.team_b].players,
-      ];
-      for (let i = 0; i < cohort.length; i++) {
-        for (let j = i + 1; j < cohort.length; j++) {
-          const k = [cohort[i], cohort[j]].sort().join('|');
-          pairCount[k] = (pairCount[k] || 0) + 1;
-        }
-      }
+      [result.teams[m.team_a].players, result.teams[m.team_b].players].forEach(team => {
+        team.forEach(p => {
+          team.forEach(q => {
+            if (p !== q) partners[p].add(q);
+          });
+        });
+      });
     });
   });
 
-  const counts = Object.values(pairCount);
-  const total = counts.reduce((s, n) => s + n, 0);
-  const max = Math.max(...counts);
-  // 28 unique pairs are POSSIBLE; the algorithm may not exercise all
-  // of them in only 16 matches (each match contributes 6 pairs → 96
-  // pair-uses), but no single pair should dominate. Average is
-  // total/possiblePairs ≈ 96/28 ≈ 3.4; cap max at 6 (≈ 2× average +
-  // some slack for randomness).
-  assert.ok(max <= 6,
-    `co-occurrence imbalance: max pair appears ${max} times, total pair-uses=${total}, distribution=${JSON.stringify(pairCount)}`);
+  ids.forEach(id => {
+    assert.ok(partners[id].size >= 4,
+      `player ${map[id].name} only had ${partners[id].size} distinct partners across the event (expected ≥ 4)`);
+  });
 });
 
 // (Tests for the old recommendFormatOrFallback wrapper were removed

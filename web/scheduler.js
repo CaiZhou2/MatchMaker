@@ -438,56 +438,37 @@ function seedBracket(n) {
  * `team_a` / `team_b` reference these teams by numeric index.
  */
 /**
- * Friendly / random-fair scheduler.
+ * Friendly / random-fair scheduler — TEMPLATE-BASED selection.
  *
- * Goal: schedule matches that are
- *   (a) **Internally fair** — within each match, the two teams should
- *       have similar total skill (so the game is competitive).
- *   (b) **Equal participation** — every player plays roughly the
- *       same number of matches across the event.
- *   (c) **Mixed pairings** — over the course of an event, every
- *       player should play with and against many different opponents,
- *       not just the same 3 people every slot.
- *   (d) **No consecutive repeats** — the same 4 people shouldn't be
- *       grouped together in two slots in a row when there are other
- *       players who could fill in instead.
+ * The user's spec (paraphrased):
  *
- * Algorithm — greedy co-occurrence minimisation:
+ *   1. Rank attendees by win rate. Top 50% = STRONG pool, bottom
+ *      50% = WEAK pool.
  *
- *   1. Track a pairwise co-occurrence count: how many times each pair
- *      of players has been on the same court so far. This is the
- *      anti-clique signal.
+ *   2. For each match, randomly pick one of these templates:
+ *        teamSize=2 → SS-SS / SW-SW / WW-WW   (3 templates)
+ *        teamSize=3 → SSS-SSS / SSW-SSW / SWW-SWW / WWW-WWW (4)
+ *        teamSize=T → T+1 templates parameterised by k = strong-per-team
  *
- *   2. For each (slot, court), build a cohort by greedy selection:
+ *   3. Draw the required players from the right pool. If the chosen
+ *      pool is short, fall back to the other pool.
  *
- *      a. Pick a "seed" player from the lowest-game-count pool
- *         (random tiebreak). This guarantees property (b).
+ *   4. Distribute the picked strong + weak players across the two
+ *      teams so each team has exactly k strong and (T−k) weak.
  *
- *      b. Repeatedly add the player whose sum of co-occurrence
- *         counts with the already-picked cohort is LOWEST. Tiebreak
- *         by game count, then random. This naturally:
- *           - mixes tiers in slot 1 (everyone is co=0, so the picks
- *             are pure random — produces 强弱 mixes too, not just
- *             tier clusters)
- *           - in later slots, prefers players who haven't yet been
- *             grouped with the seed — so the same 4 won't replay
- *           - is bounded: when the pool is exactly playersPerMatch
- *             large, the algorithm has no choice and picks them all
- *             (this can't be helped)
+ *   5. As much as possible, AVOID re-using the same group of people
+ *      who already played together in a previous match (even if
+ *      they're now reshuffled into different teams).
  *
- *   3. INSIDE each cohort, sort by win rate descending and snake-draft
- *      into teams. This is property (a) — even when the cohort spans
- *      multiple skill tiers, snake-drafting gives each side one high
- *      pick + one low pick, so the two teams' total strengths are
- *      roughly equal.
+ * (5) is enforced via a pairwise co-occurrence counter that biases
+ * the per-pool selection: when picking from strong/weak, we prefer
+ * players who haven't yet been on the same court as the players we
+ * already picked for this match.
  *
- *   4. After each match, bump the co-occurrence counter for every
- *      pair in the cohort (regardless of which team they're on — we
- *      consider "played on the same court" the relevant signal).
- *
- * Why greedy and not optimal? An optimal "minimum total co-occurrence
- * over all slots" assignment is a hard combinatorial problem. Greedy
- * gets us most of the way at trivial cost.
+ * Generalisation note: for teamSize > 2 the templates become richer
+ * because k can range from 0 to T. The user said "按这个思路类推
+ * (extrapolate this idea)", so we just sweep k uniformly. Each
+ * value of k produces a different per-team mix of strong/weak.
  */
 function planRandomFairFallback({
   attendeeIds, playersMap, teamSize, teamsPerMatch,
@@ -517,12 +498,33 @@ function planRandomFairFallback({
 
   const wr = (id) => playerWinRate(playersMap[id]);
 
+  // Sort attendees by win rate descending. Tiebreak by games played
+  // (more = more reliable), then by deterministic jitter so the
+  // strong/weak split is stable across reruns.
+  const jitter = {};
+  attendeeIds.forEach(id => { jitter[id] = Math.random(); });
+  const ranked = [...attendeeIds].sort((a, b) => {
+    const wd = wr(b) - wr(a);
+    if (wd !== 0) return wd;
+    const gA = playerTotalGames(playersMap[a]);
+    const gB = playerTotalGames(playersMap[b]);
+    if (gA !== gB) return gB - gA;
+    return jitter[a] - jitter[b];
+  });
+
+  // Strong = top half (floor), weak = the rest. With odd N the
+  // median player goes to weak.
+  const halfBoundary = Math.floor(n / 2);
+  const strongPool = new Set(ranked.slice(0, halfBoundary));
+  const weakPool = new Set(ranked.slice(halfBoundary));
+
   // Per-player game count for this event
   const gameCount = {};
   attendeeIds.forEach(id => { gameCount[id] = 0; });
 
   // Pairwise co-occurrence: coOccur[a][b] = number of times a and b
-  // have been on the same court together so far this event.
+  // have been on the same court together so far this event. Used to
+  // bias selection AWAY from re-using a group that already played.
   const coOccur = {};
   attendeeIds.forEach(id => { coOccur[id] = {}; });
   function pairCo(a, b) { return coOccur[a][b] || 0; }
@@ -531,31 +533,36 @@ function planRandomFairFallback({
     coOccur[b][a] = (coOccur[b][a] || 0) + 1;
   }
 
-  // Greedy cohort selector. `available` is the pool to pick from
-  // (players not yet used in the current slot). Returns the chosen
-  // cohort, or null if `available` is too small.
-  function pickCohort(available) {
-    if (available.length < playersPerMatch) return null;
-
-    // Seed: random pick from the lowest-game-count tier
-    const minGc = Math.min(...available.map(id => gameCount[id]));
-    const seedPool = available.filter(id => gameCount[id] === minGc);
-    // Fisher-Yates shuffle in place
-    for (let i = seedPool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [seedPool[i], seedPool[j]] = [seedPool[j], seedPool[i]];
-    }
-    const cohort = [seedPool[0]];
-
-    while (cohort.length < playersPerMatch) {
-      // Score each remaining candidate by (sum-co with cohort, gc, random)
+  // Greedy pick of `count` players from the given pool. A player is
+  // skipped if they are EITHER already used this slot (excludeSet)
+  // OR already picked for this match (cohortSoFar) — both must be
+  // exclusions, not just scoring inputs. The cohortSoFar players also
+  // contribute to the co-occurrence score so we prefer candidates who
+  // haven't recently been on a court with the already-picked players.
+  //
+  // The fallback path (cross-pool fill when one pool is short) is
+  // why exclusion via cohortSoFar matters: when we re-call pickFromPool
+  // on the OTHER pool with the running cohort as cohortSoFar, the
+  // running cohort may contain players from THIS pool (because of an
+  // earlier fallback). Without the cohortSoFar exclusion below, those
+  // players would get re-picked → duplicate-player matches.
+  function pickFromPool(pool, count, cohortSoFar, excludeSet) {
+    const out = [];
+    const cohortSet = new Set(cohortSoFar);
+    while (out.length < count) {
       let best = null;
       let bestKey = null;
-      for (const id of available) {
-        if (cohort.includes(id)) continue;
+      for (const id of pool) {
+        if (excludeSet.has(id)) continue;
+        if (cohortSet.has(id)) continue;
+        if (out.includes(id)) continue;
         let coSum = 0;
-        for (const pid of cohort) coSum += pairCo(id, pid);
-        const key = [coSum, gameCount[id], Math.random()];
+        for (const pid of cohortSoFar) coSum += pairCo(id, pid);
+        for (const pid of out) coSum += pairCo(id, pid);
+        // Priority: gameCount asc (equal participation, the most
+        // important property), then co-occurrence asc (avoid recent
+        // partners), then random tiebreak.
+        const key = [gameCount[id], coSum, Math.random()];
         if (!bestKey
             || key[0] < bestKey[0]
             || (key[0] === bestKey[0] && key[1] < bestKey[1])
@@ -564,45 +571,190 @@ function planRandomFairFallback({
           bestKey = key;
         }
       }
-      cohort.push(best);
+      if (best == null) break;  // pool exhausted
+      out.push(best);
     }
-    return cohort;
+    return out;
+  }
+
+  // Build one match's cohort according to the chosen template `k`
+  // (number of STRONG players per team). Returns { strong, weak }
+  // arrays, falling back across pools if one runs short.
+  function pickTemplateCohort(k, excludeSet) {
+    const strongNeeded = k * teamsPerMatch;
+    const weakNeeded = (teamSize - k) * teamsPerMatch;
+
+    // Phase 1: pick from the requested pools
+    const strong = pickFromPool(strongPool, strongNeeded, [], excludeSet);
+    const weak = pickFromPool(
+      weakPool, weakNeeded, strong, excludeSet
+    );
+
+    // Phase 2: fall back across pools if either is short
+    if (strong.length < strongNeeded) {
+      const shortBy = strongNeeded - strong.length;
+      const extra = pickFromPool(
+        weakPool, shortBy, [...strong, ...weak], excludeSet
+      );
+      // The "extras" are technically weak players standing in for
+      // strong roles — distribute them as if they were strong so the
+      // team layout still has the right shape.
+      for (const id of extra) strong.push(id);
+    }
+    if (weak.length < weakNeeded) {
+      const shortBy = weakNeeded - weak.length;
+      const extra = pickFromPool(
+        strongPool, shortBy, [...strong, ...weak], excludeSet
+      );
+      for (const id of extra) weak.push(id);
+    }
+
+    // Final size check (should always succeed since we already
+    // verified n >= playersPerMatch and the pools combined cover
+    // every attendee).
+    if (strong.length < strongNeeded || weak.length < weakNeeded) {
+      return null;
+    }
+    return { strong, weak };
+  }
+
+  // Distribute strong + weak across teamsPerMatch teams so each
+  // team gets exactly `k` strong and `(teamSize − k)` weak players.
+  // Within each pool we deal round-robin: strong[0] → team 0,
+  // strong[1] → team 1, ..., strong[teamsPerMatch] → team 0, etc.
+  function buildTeamsFromTemplate(strong, weak, k) {
+    const teamPlayers = Array.from({ length: teamsPerMatch }, () => []);
+    strong.forEach((pid, i) => {
+      teamPlayers[i % teamsPerMatch].push(pid);
+    });
+    weak.forEach((pid, i) => {
+      // Snake the weak distribution so the strong+weak pairings
+      // aren't always (strongest strong + strongest weak) — that
+      // would systematically tilt one team. Snake gives a random-
+      // ish but balanced pairing.
+      const round = Math.floor(i / teamsPerMatch);
+      const pos = i % teamsPerMatch;
+      const teamIdx = round % 2 === 0 ? pos : (teamsPerMatch - 1 - pos);
+      teamPlayers[teamIdx].push(pid);
+    });
+    return teamPlayers;
   }
 
   const teams = [];      // global team list (one entry per generated match-side)
   const schedule = [];
-
   let teamCounter = 0;
+
+  // Tracks the cohort keys of EVERY match generated so far this event,
+  // not just the previous slot. The user's "尽量不要出现 已经在同一个
+  // 场子出现过的相同的人 重新组合后出现在另一场" rule applies across
+  // the whole event, not just adjacent slots — so a group of 4 that
+  // played together in slot 1 should also not play together in slot 3.
+  // For very small rosters (e.g. 4 strong + 4 weak), the SS-SS and
+  // WW-WW templates each have only one possible cohort, so each can
+  // be used at most once before the no-repeat constraint kicks in.
+  // After that the algorithm must keep using SW-SW with varied
+  // composition, which has many possible cohorts.
+  const allCohortKeys = new Set();
+  function cohortKeyOf(strong, weak) {
+    return [...strong, ...weak].slice().sort().join(',');
+  }
 
   for (let slotIdx = 0; slotIdx < maxSlots; slotIdx++) {
     const usedThisSlot = new Set();
     const slotMatches = [];
 
     for (let courtIdx = 0; courtIdx < courtsPerSlot; courtIdx++) {
-      const available = attendeeIds.filter(id => !usedThisSlot.has(id));
-      const cohort = pickCohort(available);
-      if (!cohort) break;
+      const remaining = n - usedThisSlot.size;
+      if (remaining < playersPerMatch) break;
 
-      // Within the cohort, sort by win rate descending and snake-draft
-      // for INTERNAL match balance. This is property (a) — the two
-      // teams of a single match always end up with one stronger and
-      // one weaker player when the cohort spans multiple WR levels,
-      // producing 强弱 vs 强弱. When the cohort is all-strong or
-      // all-weak (which still happens occasionally because the cohort
-      // selection is random in the early slots), snake gives 强强 vs
-      // 强强 / 弱弱 vs 弱弱 — also fair, just at different absolute
-      // levels.
-      const ranked = [...cohort].sort((a, b) => wr(b) - wr(a));
+      // Random template draw with two refinements:
+      //
+      // (1) Participation balance: compute the total game count of
+      //     each pool. If one pool is meaningfully under-played
+      //     (lower total than the other), bias the template selection
+      //     toward templates that USE the under-played pool. This
+      //     keeps every player's match count even across the event.
+      //     Without this, uniform random template draws could favour
+      //     strong-only or weak-only matches and starve one pool.
+      //
+      // (2) No-repeat avoidance: walk templates in shuffled order,
+      //     pick the first whose cohort wasn't used in the previous
+      //     slot (set-wise). User's "尽量不要出现连续场次相同的人组合"
+      //     constraint. For very small rosters where every template
+      //     forces the same cohort, the fallback below accepts the
+      //     repeat (mathematically unavoidable).
+      const strongTotal = [...strongPool].reduce((s, id) => s + gameCount[id], 0);
+      const weakTotal = [...weakPool].reduce((s, id) => s + gameCount[id], 0);
+      // Normalise by pool size so e.g. 4 strong vs 5 weak compares fairly
+      const strongAvg = strongPool.size > 0 ? strongTotal / strongPool.size : 0;
+      const weakAvg = weakPool.size > 0 ? weakTotal / weakPool.size : 0;
 
-      const teamPlayers = Array.from({ length: teamsPerMatch }, () => []);
-      ranked.forEach((pid, i) => {
-        const round = Math.floor(i / teamsPerMatch);
-        const pos = i % teamsPerMatch;
-        const teamIdx = round % 2 === 0 ? pos : (teamsPerMatch - 1 - pos);
-        teamPlayers[teamIdx].push(pid);
-      });
+      // When the pools are out of balance, force the EXTREME corrective
+      // template (all-strong if weak is ahead, all-weak if strong is
+      // ahead) — this is the only template that actually closes the
+      // gap. Mixed templates (k = T/2) don't help because they add to
+      // both pools equally. When the pools ARE balanced, all templates
+      // are eligible and the no-repeat / random shuffle below picks one.
+      const allTemplates = Array.from({ length: teamSize + 1 }, (_, k) => k);
+      let preferred;
+      if (strongAvg < weakAvg) {
+        // Strong under-played → force all-strong template (k = teamSize)
+        preferred = [teamSize];
+      } else if (weakAvg < strongAvg) {
+        // Weak under-played → force all-weak template (k = 0)
+        preferred = [0];
+      } else {
+        preferred = allTemplates.slice();
+      }
+      // Fisher-Yates shuffle the preferred list
+      for (let i = preferred.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [preferred[i], preferred[j]] = [preferred[j], preferred[i]];
+      }
+      // Always also append the non-preferred templates as a tail
+      // fallback (in case the preferred ones all produce repeats).
+      const nonPreferred = allTemplates.filter(k => !preferred.includes(k));
+      for (let i = nonPreferred.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [nonPreferred[i], nonPreferred[j]] = [nonPreferred[j], nonPreferred[i]];
+      }
+      const templateOrder = [...preferred, ...nonPreferred];
 
-      // Materialise teams as global team objects and remember their indices
+      let chosenCohort = null;
+      let fallbackCohort = null;
+      // Walk templates in order, but for each template retry the
+      // cohort pick a few times — pickTemplateCohort uses random
+      // tiebreakers internally, so a template that has multiple
+      // possible cohorts (like SW-SW with mixed-tier picks) can
+      // produce a fresh combination on retry. Templates with only
+      // one possible cohort (SS-SS / WW-WW on small rosters) hit
+      // the "already used" check immediately and move on.
+      for (const k of templateOrder) {
+        for (let retry = 0; retry < 8; retry++) {
+          const cohort = pickTemplateCohort(k, usedThisSlot);
+          if (!cohort) break;
+          if (!fallbackCohort) fallbackCohort = cohort;
+          const key = cohortKeyOf(cohort.strong, cohort.weak);
+          if (!allCohortKeys.has(key)) {
+            chosenCohort = cohort;
+            break;
+          }
+        }
+        if (chosenCohort) break;
+      }
+      // No template produced a fresh cohort → accept the first
+      // feasible one (forced repeat, can't be helped — every
+      // possible cohort has already played at least once)
+      if (!chosenCohort) chosenCohort = fallbackCohort;
+      if (!chosenCohort) break;
+
+      const { strong, weak } = chosenCohort;
+      const k = Math.round(strong.length / teamsPerMatch);
+      const teamPlayers = buildTeamsFromTemplate(strong, weak, k);
+      const newKey = cohortKeyOf(strong, weak);
+      allCohortKeys.add(newKey);
+
+      // Materialise teams as global team objects
       const teamIndices = teamPlayers.map(players => {
         const idx = teams.length;
         teams.push({
@@ -621,14 +773,15 @@ function planRandomFairFallback({
       });
 
       // Bump per-player game count + pairwise co-occurrence for the
-      // entire cohort (so future slots try not to repeat this group).
-      cohort.forEach(pid => {
+      // entire cohort (so future matches try not to repeat this group).
+      const fullCohort = [...strong, ...weak];
+      fullCohort.forEach(pid => {
         usedThisSlot.add(pid);
         gameCount[pid] += 1;
       });
-      for (let i = 0; i < cohort.length; i++) {
-        for (let j = i + 1; j < cohort.length; j++) {
-          bumpPair(cohort[i], cohort[j]);
+      for (let i = 0; i < fullCohort.length; i++) {
+        for (let j = i + 1; j < fullCohort.length; j++) {
+          bumpPair(fullCohort[i], fullCohort[j]);
         }
       }
     }

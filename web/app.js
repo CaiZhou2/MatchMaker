@@ -1179,6 +1179,7 @@ function recordResult(slotIdx, court, result) {
   // Tapping the same button again clears just the result (keeps scores
   // if the user had already typed any).
   updateMatchEntry(slotIdx, court, { result: prevResult === result ? null : result });
+  maybeShowTiebreakerNotices();
   renderTournament();
 }
 
@@ -1211,7 +1212,57 @@ function recordScore(slotIdx, court, side, raw) {
     updateMatchEntry(slotIdx, court, { result: derived });
   }
 
+  maybeShowTiebreakerNotices();
   renderTournament();
+}
+
+// Detects groups that are now complete (every group match has a
+// recorded result) AND have at least one tied position in their
+// standings, and shows a one-time alert explaining how the tie was
+// resolved (score difference or random tiebreak). Already-shown
+// notices are tracked on ev.tiebreakerNoticesShown so the alert
+// fires at most once per group per event.
+function maybeShowTiebreakerNotices() {
+  const ev = Storage.getCurrentEvent();
+  if (!ev || !ev.plan || !ev.plan.group_sizes) return;
+  if (!Array.isArray(ev.tiebreakerNoticesShown)) {
+    ev.tiebreakerNoticesShown = [];
+  }
+  const sizes = ev.plan.group_sizes;
+  let dirty = false;
+  for (let g = 0; g < sizes.length; g++) {
+    if (ev.tiebreakerNoticesShown.includes(g)) continue;
+    if (!Storage._helpers.isGroupComplete(ev, g)) continue;
+    const ties = Storage._helpers.detectGroupTiebreakers(ev, g);
+    // Mark as "shown" regardless — we won't re-fire even if the user
+    // edits a result later (their explicit choice not to disturb).
+    ev.tiebreakerNoticesShown.push(g);
+    dirty = true;
+    if (ties.length === 0) continue;
+
+    const lines = [];
+    lines.push(t('tiebreaker.notice.header', { group: g + 1 }));
+    ties.forEach(tie => {
+      const teamNames = tie.teams.map(team => team.name).join(t('text.name.separator'));
+      if (tie.resolvedBy === 'diff') {
+        const diffStrs = tie.teams.map((team, i) =>
+          `${team.name}: ${tie.diffs[i] >= 0 ? '+' : ''}${tie.diffs[i]}`
+        ).join(t('text.name.separator'));
+        lines.push(t('tiebreaker.notice.diff', {
+          pts: tie.pts,
+          teams: teamNames,
+          diffs: diffStrs,
+        }));
+      } else {
+        lines.push(t('tiebreaker.notice.random', {
+          pts: tie.pts,
+          teams: teamNames,
+        }));
+      }
+    });
+    alert(lines.join('\n\n'));
+  }
+  if (dirty) Storage.setCurrentEvent(ev);
 }
 
 /* ─── EVENT LIFECYCLE ───────────────────────────────────────── */

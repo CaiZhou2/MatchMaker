@@ -670,10 +670,113 @@ function computeGroupTable(ev, groupIdx) {
     });
   });
 
-  const sorted = Object.values(stats).sort((x, y) =>
-    y.pts - x.pts || y.diff - x.diff
-  );
+  // Sort by points → score difference → deterministic random.
+  // The "random" tiebreaker is a stable hash of the team's id and the
+  // event date, so the resolved order is the same on every read but
+  // looks unrelated to team index. This means once a tiebreaker has
+  // been decided, the same teams keep advancing on subsequent reads
+  // (no flicker), but it's not just "lower team index wins".
+  const dateSeed = (ev.date || '') + ':g' + groupIdx;
+  function tiebreakHash(teamIdx) {
+    const team = ev.teams[teamIdx];
+    const id = (team && team.id) || String(teamIdx);
+    let h = 5381;
+    const s = dateSeed + ':' + id;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+    return h;
+  }
+  const sorted = Object.values(stats).sort((x, y) => {
+    if (x.pts !== y.pts) return y.pts - x.pts;
+    if (x.diff !== y.diff) return y.diff - x.diff;
+    return tiebreakHash(x.teamIdx) - tiebreakHash(y.teamIdx);
+  });
   return sorted.map(s => ev.teams[s.teamIdx]);
+}
+
+// Walks one group's standings and reports any tied positions —
+// places where two or more teams have the same point total. Used to
+// surface a notice on the tournament view when a knockout slot is
+// being decided by tiebreaker rather than head-to-head record.
+//
+// Returns an array of tiebreaker descriptions:
+//
+//   [
+//     {
+//       pts: 4,                 // the tied point total
+//       teams: [team0, team1],  // the tied team objects, in resolved order
+//       resolvedBy: 'diff',     // 'diff' | 'random'
+//       diffs: [+5, -2],        // (when 'diff') the score diffs that decided
+//     },
+//     ...
+//   ]
+//
+// Multiple tiebreaker buckets can exist in the same group (e.g. 1st
+// and 2nd are tied AND 3rd and 4th are tied). Each is its own entry.
+function detectGroupTiebreakers(ev, groupIdx) {
+  if (!ev || !ev.plan) return [];
+  const sizes = ev.plan.group_sizes || [];
+  let start = 0;
+  for (let i = 0; i < groupIdx; i++) start += sizes[i];
+  const size = sizes[groupIdx] || 0;
+  if (size < 2) return [];
+
+  // Re-compute the raw stats so we can group by point total before
+  // the random tiebreaker collapses them.
+  const teamIndices = Array.from({ length: size }, (_, i) => start + i);
+  const stats = {};
+  teamIndices.forEach(i => { stats[i] = { pts: 0, diff: 0, teamIdx: i }; });
+  ev.plan.schedule.forEach((slot, slotIdx) => {
+    if (slot.phase !== 'group') return;
+    slot.matches.forEach(match => {
+      if (match.kind !== 'ranked') return;
+      const a = match.team_a, b = match.team_b;
+      if (typeof a !== 'number' || typeof b !== 'number') return;
+      if (!teamIndices.includes(a) || !teamIndices.includes(b)) return;
+      const key = `${slotIdx}:${match.court}`;
+      const entry = ev.results[key];
+      const result = getMatchResult(entry);
+      if (!result) return;
+      if (result === 'A') { stats[a].pts += 3; }
+      else if (result === 'B') { stats[b].pts += 3; }
+      else if (result === 'D') { stats[a].pts += 1; stats[b].pts += 1; }
+      const scores = getMatchScores(entry);
+      if (scores.a !== null && scores.b !== null) {
+        stats[a].diff += scores.a - scores.b;
+        stats[b].diff += scores.b - scores.a;
+      }
+    });
+  });
+
+  // Group teams by point total
+  const byPoints = new Map();
+  Object.values(stats).forEach(s => {
+    if (!byPoints.has(s.pts)) byPoints.set(s.pts, []);
+    byPoints.get(s.pts).push(s);
+  });
+
+  const finalOrder = computeGroupTable(ev, groupIdx);  // already tiebroken
+  const out = [];
+  byPoints.forEach((tiedStats, pts) => {
+    if (tiedStats.length < 2) return;
+    const distinctDiffs = new Set(tiedStats.map(s => s.diff));
+    const allSameDiff = distinctDiffs.size === 1;
+    // Find these teams in the resolved order so we can report them
+    // in the order they ended up advancing
+    const orderedTeams = finalOrder.filter(team =>
+      tiedStats.some(s => ev.teams[s.teamIdx] === team)
+    );
+    const orderedDiffs = orderedTeams.map(team => {
+      const s = tiedStats.find(st => ev.teams[st.teamIdx] === team);
+      return s.diff;
+    });
+    out.push({
+      pts,
+      teams: orderedTeams,
+      resolvedBy: allSameDiff ? 'random' : 'diff',
+      diffs: orderedDiffs,
+    });
+  });
+  return out;
 }
 
 function findKnockoutWinner(ev, round, matchNum) {
@@ -733,6 +836,7 @@ Storage._helpers = {
   resolvePlaceholder,
   computeGroupTable,
   isGroupComplete,
+  detectGroupTiebreakers,
   findKnockoutWinner,
   getMatchResult,
   getMatchScores,

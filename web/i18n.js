@@ -188,6 +188,11 @@ const TRANSLATIONS = {
     'tour.phase.group': '小组赛',
     'tour.phase.knockout': '淘汰赛',
     'tour.phase.random_fair': '随机配对',
+
+    // ─── Group stage tiebreaker notice ───────────────────────
+    'tiebreaker.notice.header': '⚖️ 小组 {group} 出现积分相同的队伍：',
+    'tiebreaker.notice.diff': '· 积分都是 {pts} 分的 {teams}：根据净得分（{diffs}）确定晋级顺序。',
+    'tiebreaker.notice.random': '· 积分和净得分都相同的 {teams}（{pts} 分）：随机决定 {teams} 的晋级顺序。',
     'tour.phase.friendly': '友谊赛',
     'tour.court': '场地 {n}',
     'tour.court.friendly': '场地 {n} · 自由场',
@@ -442,6 +447,11 @@ const TRANSLATIONS = {
     'tour.phase.group': 'Group',
     'tour.phase.knockout': 'Knockout',
     'tour.phase.random_fair': 'Random pairing',
+
+    // ─── Group stage tiebreaker notice ───────────────────────
+    'tiebreaker.notice.header': '⚖️ Group {group} has tied standings:',
+    'tiebreaker.notice.diff': '· {teams} all on {pts} pts: advancement decided by score difference ({diffs}).',
+    'tiebreaker.notice.random': '· {teams} all on {pts} pts AND tied on score difference: advancement decided randomly.',
     'tour.phase.friendly': 'Friendly',
     'tour.court': 'Court {n}',
     'tour.court.friendly': 'Court {n} · Friendly',
