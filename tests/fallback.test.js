@@ -254,49 +254,7 @@ test('fallback: similar-skill players cluster into the same match (slot 1)', () 
     `Expected one court with top tier and one with bottom tier; got: ${courtNames.join(' | ')}`);
 });
 
-test('fallback: recommendFormatOrFallback returns cup plan when it fits', () => {
-  const h = createHarness();
-  const map = buildPlayers(h, Array.from({ length: 8 }, (_, i) => ({
-    name: 'P' + i, w: i, d: 0, l: 7 - i,
-  })));
-  const ids = Object.keys(map);
-  const formed = h.formBalancedTeams(ids, map, 2);
-
-  // Generous budget — cup plan fits
-  const out = h.recommendFormatOrFallback({
-    teams: formed.teams,
-    attendeeIds: ids,
-    playersMap: map,
-    teamSize: 2,
-    teamsPerMatch: 2,
-    numCourts: 2,
-    matchDuration: 15,
-    totalTime: 240,
-  });
-  assert.equal(out.fallback, false);
-  assert.notEqual(out.plan.format, 'random-fair');
-});
-
-test('fallback: recommendFormatOrFallback uses fallback when cup plan does not fit', () => {
-  const h = createHarness();
-  const map = buildPlayers(h, Array.from({ length: 8 }, (_, i) => ({
-    name: 'P' + i, w: i, d: 0, l: 7 - i,
-  })));
-  const ids = Object.keys(map);
-  const formed = h.formBalancedTeams(ids, map, 2);
-
-  // Tight budget — cup plan can't fit, fallback should kick in
-  const out = h.recommendFormatOrFallback({
-    teams: formed.teams,
-    attendeeIds: ids,
-    playersMap: map,
-    teamSize: 2,
-    teamsPerMatch: 2,
-    numCourts: 1,
-    matchDuration: 10,
-    totalTime: 20,
-  });
-  assert.equal(out.fallback, true);
-  assert.equal(out.plan.format, 'random-fair');
-  assert.equal(out.plan.fits, true);
-});
+// (Tests for the old recommendFormatOrFallback wrapper were removed
+// when the auto-fallback logic was deleted in favour of explicit
+// tournament-mode selection. See tests/modes.test.js for the new
+// planByMode dispatch tests.)

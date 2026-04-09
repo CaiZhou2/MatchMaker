@@ -429,15 +429,31 @@ function renderHistory() {
 
   div.innerHTML = sorted.map(h => {
     const expanded = ui.expandedHistory.has(h.id);
-    const fmt = h.plan?.format === 'groups-knockout'
-      ? t('teams.format.groups_knockout', {
-          groups: (h.plan.group_sizes || []).join('/'),
-          n: h.plan.knockout_size,
-        })
-      : t('teams.format.round_robin');
-    const rankedMatches = h.plan?.schedule.reduce(
-      (s, slot) => s + slot.matches.filter(m => m.kind === 'ranked').length, 0
+    const planFormat = h.plan?.format;
+    let fmt;
+    if (planFormat === 'groups-knockout') {
+      fmt = t('teams.format.groups_knockout', {
+        groups: (h.plan.group_sizes || []).join('/'),
+        n: h.plan.knockout_size,
+      });
+    } else if (planFormat === 'knockout') {
+      fmt = t('teams.format.knockout', { n: h.plan.knockout_size || 0 });
+    } else if (planFormat === 'random-fair') {
+      fmt = t('teams.format.random_fair');
+    } else if (planFormat === 'friendly') {
+      fmt = t('teams.format.friendly');
+    } else {
+      fmt = t('teams.format.round_robin');
+    }
+    // For friendly events all matches are kind='friendly' — count those
+    // instead, otherwise the "X/Y matches" stat shows 0/0.
+    const isFriendly = planFormat === 'friendly';
+    const totalMatches = h.plan?.schedule.reduce(
+      (s, slot) => s + slot.matches.filter(m =>
+        isFriendly ? m.kind === 'friendly' : m.kind === 'ranked'
+      ).length, 0
     ) || 0;
+    const rankedMatches = totalMatches;
     const completedMatches = Object.values(h.results || {})
       .filter(e => Storage._helpers.getMatchResult(e) != null).length;
 
@@ -741,22 +757,31 @@ function renderFormatPreview() {
       groups: plan.group_sizes.join('/'),
       n: plan.knockout_size,
     });
+  } else if (plan.format === 'knockout') {
+    fmtText = t('teams.format.knockout', { n: plan.knockout_size || 0 });
   } else if (plan.format === 'random-fair') {
     fmtText = t('teams.format.random_fair');
+  } else if (plan.format === 'friendly') {
+    fmtText = t('teams.format.friendly');
   } else {
     fmtText = t('teams.format.round_robin');
   }
 
   const d = parseInt(document.getElementById('match-duration').value, 10) || 15;
   const totalMin = plan.slotsUsed * d;
-  const rankedCount = plan.schedule.reduce(
-    (s, slot) => s + slot.matches.filter(m => m.kind === 'ranked').length, 0);
+  // Friendly mode has no ranked matches, so count all matches instead.
+  const isFriendly = plan.format === 'friendly';
+  const matchCount = plan.schedule.reduce(
+    (s, slot) => s + slot.matches.filter(m =>
+      isFriendly ? m.kind === 'friendly' : m.kind === 'ranked'
+    ).length, 0);
 
+  const statsKey = isFriendly ? 'teams.format.stats_friendly' : 'teams.format.stats';
   preview.innerHTML = `
     <div class="preview-title">${escapeHtml(t('teams.format.recommended'))}</div>
     <div class="preview-main">${escapeHtml(fmtText)}</div>
     <div class="preview-sub">
-      ${escapeHtml(t('teams.format.stats', { ranked: rankedCount, slots: plan.slotsUsed, min: totalMin }))}
+      ${escapeHtml(t(statsKey, { ranked: matchCount, friendly: matchCount, slots: plan.slotsUsed, min: totalMin }))}
     </div>
   `;
 }
@@ -777,11 +802,30 @@ function translateFormatReason(reason) {
   return key ? t(key) : reason;
 }
 
+// Re-runs the tournament planner against ui.pendingTeams using the
+// currently-selected mode. Called from generateTeams (initial) and
+// from manual swap / re-shuffle actions in the teams view (so the
+// schedule preview reflects the new team order).
 function planPendingTournament() {
+  const mode = document.getElementById('tournament-mode').value || 'auto';
   const numCourts = parseInt(document.getElementById('num-courts').value, 10) || 2;
   const matchDuration = parseInt(document.getElementById('match-duration').value, 10) || 15;
   const totalTime = parseInt(document.getElementById('total-time').value, 10) || 180;
-  ui.pendingPlan = recommendFormat(ui.pendingTeams, numCourts, matchDuration, totalTime);
+  const teamSize = parseInt(document.getElementById('team-size').value, 10) || 2;
+
+  const playersMap = {};
+  Storage.getAllPlayers().forEach(p => { playersMap[p.id] = p; });
+
+  ui.pendingPlan = planByMode(mode, {
+    teams: ui.pendingTeams,
+    attendeeIds: Array.from(ui.selectedAttendees),
+    playersMap,
+    teamSize,
+    teamsPerMatch: 2,
+    numCourts,
+    matchDuration,
+    totalTime,
+  });
 }
 
 /* ─── TOURNAMENT VIEW ───────────────────────────────────────── */
@@ -853,6 +897,7 @@ function phaseDisplay(phase) {
     'knockout': 'tour.phase.knockout',
     'round-robin': 'tour.phase.round_robin',
     'random-fair': 'tour.phase.random_fair',
+    'friendly': 'tour.phase.friendly',
   };
   return t(map[phase] || phase);
 }
@@ -1023,6 +1068,7 @@ function startNewEvent() {
 function generateTeams() {
   const attendeeIds = Array.from(ui.selectedAttendees);
   const teamSize = parseInt(document.getElementById('team-size').value, 10) || 2;
+  const mode = document.getElementById('tournament-mode').value || 'auto';
   if (attendeeIds.length < teamSize * 2) {
     alert(t('setup.alert.need_players', { n: teamSize * 2 }));
     return;
@@ -1031,51 +1077,56 @@ function generateTeams() {
   const playersMap = {};
   Storage.getAllPlayers().forEach(p => { playersMap[p.id] = p; });
 
-  const result = formBalancedTeams(attendeeIds, playersMap, teamSize);
-  if (result.error) {
-    alert(result.error);
-    return;
+  // Friendly mode skips the balanced-draft step entirely — its
+  // teams are generated per-match by planRandomFairFallback. The
+  // teams view enters its "fallback preview" rendering path that
+  // shows a slot-by-slot match list instead of static team cards.
+  let teams;
+  if (mode === 'friendly') {
+    teams = [];  // placeholder; planByMode will populate via plan.teams
+    ui.spectators = [];
+  } else {
+    const result = formBalancedTeams(attendeeIds, playersMap, teamSize);
+    if (result.error) {
+      alert(result.error);
+      return;
+    }
+    // Give teams localized default names ("Team 1" / "第1队" style)
+    result.teams.forEach((team, i) => {
+      team.name = t('team.default.name', { n: i + 1 });
+    });
+    teams = result.teams;
+    ui.spectators = result.spectators || [];
   }
 
-  // Give teams localized default names ("Team 1" / "第1队" style)
-  result.teams.forEach((team, i) => {
-    team.name = t('team.default.name', { n: i + 1 });
-  });
-
-  ui.pendingTeams = result.teams;
-  ui.spectators = result.spectators || [];
+  ui.pendingTeams = teams;
   ui.swapMode = false;
   ui.swapSelection = null;
-  ui.fallbackMode = false;
+  ui.fallbackMode = (mode === 'friendly');
 
   planPendingTournament();
 
-  // If neither cup format fits, fall back to random-fair scheduling.
-  // The fallback DISCARDS the fixed weekly teams and generates per-match
-  // teams instead — see scheduler.js:planRandomFairFallback for the
-  // rationale (snake-drafting similar-skill cohorts).
-  if (ui.pendingPlan && !ui.pendingPlan.fits) {
-    const numCourts = parseInt(document.getElementById('num-courts').value, 10) || 2;
-    const matchDuration = parseInt(document.getElementById('match-duration').value, 10) || 15;
-    const totalTime = parseInt(document.getElementById('total-time').value, 10) || 180;
-    const teamsPerMatch = 2;  // currently fixed; could be exposed in setup later
+  // Explicit mode → no auto-fallback. If the chosen mode can't fit
+  // in the current time/courts/players budget, alert and stay on
+  // the setup view. The user has to either change the mode or
+  // change the parameters.
+  if (!ui.pendingPlan || !ui.pendingPlan.fits) {
+    const reason = translateFormatReason(ui.pendingPlan?.reason);
+    alert(t('setup.alert.mode_infeasible', {
+      mode: t('setup.mode.' + mode.replace('-', '_')),
+      reason,
+    }));
+    return;
+  }
 
-    const fallback = planRandomFairFallback({
-      attendeeIds, playersMap, teamSize, teamsPerMatch,
-      numCourts, matchDuration, totalTime,
+  // For friendly mode, the plan returned by planByMode includes the
+  // per-match teams in plan.teams — copy them into pendingTeams so
+  // the teams-view fallback preview can render them.
+  if (mode === 'friendly' && ui.pendingPlan.teams) {
+    ui.pendingPlan.teams.forEach((team, i) => {
+      team.name = t('team.default.name', { n: i + 1 });
     });
-
-    if (fallback.fits) {
-      ui.fallbackMode = true;
-      ui.pendingPlan = fallback;
-      // The fallback's `teams` field replaces the cup teams. Localize names.
-      fallback.teams.forEach((team, i) => {
-        team.name = t('team.default.name', { n: i + 1 });
-      });
-      ui.pendingTeams = fallback.teams;
-    }
-    // If the fallback also doesn't fit, leave the original infeasible
-    // plan in place so the format-preview banner explains why.
+    ui.pendingTeams = ui.pendingPlan.teams;
   }
 
   showView('teams');
@@ -1273,24 +1324,38 @@ function buildScheduleText(teams, plan, opts = {}) {
   lines.push(date ? t('text.header', { date }) : t('text.header.no_date'));
   lines.push('');
 
-  // Teams
+  // Teams — skip the static team list in friendly mode (the per-match
+  // teams are auto-generated and would clutter the output; the schedule
+  // section below renders player names inline instead).
   const sep = t('text.name.separator');
-  lines.push(t('text.teams.header', { n: teams.length }));
-  teams.forEach(team => {
-    const names = team.players
-      .map(pid => Storage.getPlayer(pid)?.name || '?')
-      .join(sep);
-    lines.push(t('text.team.line', { name: team.name, players: names }));
-  });
-  lines.push('');
+  const isFriendly = plan.format === 'friendly';
+  if (!isFriendly) {
+    lines.push(t('text.teams.header', { n: teams.length }));
+    teams.forEach(team => {
+      const names = team.players
+        .map(pid => Storage.getPlayer(pid)?.name || '?')
+        .join(sep);
+      lines.push(t('text.team.line', { name: team.name, players: names }));
+    });
+    lines.push('');
+  }
 
-  // Format
-  const fmt = plan.format === 'groups-knockout'
-    ? t('teams.format.groups_knockout', {
-        groups: plan.group_sizes.join('/'),
-        n: plan.knockout_size,
-      })
-    : t('teams.format.round_robin');
+  // Format label
+  let fmt;
+  if (plan.format === 'groups-knockout') {
+    fmt = t('teams.format.groups_knockout', {
+      groups: plan.group_sizes.join('/'),
+      n: plan.knockout_size,
+    });
+  } else if (plan.format === 'knockout') {
+    fmt = t('teams.format.knockout', { n: plan.knockout_size || 0 });
+  } else if (plan.format === 'random-fair') {
+    fmt = t('teams.format.random_fair');
+  } else if (plan.format === 'friendly') {
+    fmt = t('teams.format.friendly');
+  } else {
+    fmt = t('teams.format.round_robin');
+  }
   lines.push(t('text.format.header', { fmt }));
   lines.push('');
 
@@ -1312,8 +1377,21 @@ function buildScheduleText(teams, plan, opts = {}) {
       n: slot.slot, time: timeStr, phase: phaseText, round: roundText,
     }));
     slot.matches.forEach(m => {
-      if (m.kind === 'friendly') {
+      // Two flavours of friendly:
+      //   - Eliminated-team free-court placeholder during knockout: no
+      //     teams set, render as "free court for eliminated teams"
+      //   - Pure friendly mode (planFriendly): real per-match teams,
+      //     render with player names inline (since the auto-generated
+      //     team labels are uninformative)
+      if (m.kind === 'friendly' && (m.team_a == null || m.team_b == null)) {
         lines.push(t('text.friendly.line', { n: m.court }));
+      } else if (isFriendly) {
+        // Pure friendly mode: dump the player names instead of team labels
+        const aPlayers = (evLike.teams[m.team_a]?.players || [])
+          .map(pid => Storage.getPlayer(pid)?.name || '?').join(sep);
+        const bPlayers = (evLike.teams[m.team_b]?.players || [])
+          .map(pid => Storage.getPlayer(pid)?.name || '?').join(sep);
+        lines.push(t('text.court.line', { n: m.court, a: aPlayers, b: bPlayers }));
       } else {
         const aName = scheduleTeamName(m.team_a, evLike);
         const bName = scheduleTeamName(m.team_b, evLike);
@@ -1323,11 +1401,14 @@ function buildScheduleText(teams, plan, opts = {}) {
     lines.push('');
   });
 
-  // Summary
-  const rankedCount = plan.schedule.reduce(
-    (s, slot) => s + slot.matches.filter(m => m.kind === 'ranked').length, 0);
+  // Summary — friendly mode counts friendly matches; everything else
+  // counts ranked matches.
+  const matchCount = plan.schedule.reduce(
+    (s, slot) => s + slot.matches.filter(m =>
+      isFriendly ? m.kind === 'friendly' : m.kind === 'ranked'
+    ).length, 0);
   const totalMin = plan.slotsUsed * dur;
-  lines.push(t('text.summary', { ranked: rankedCount, slots: plan.slotsUsed, min: totalMin }));
+  lines.push(t('text.summary', { ranked: matchCount, slots: plan.slotsUsed, min: totalMin }));
 
   if (expense > 0) {
     const perHead = teams.reduce((s, team) => s + team.players.length, 0);

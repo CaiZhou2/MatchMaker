@@ -131,6 +131,15 @@ const TRANSLATIONS = {
 
     // ─── Event setup ─────────────────────────────────────────
     'setup.title': '本周比赛设置',
+    'setup.params.mode': '比赛模式',
+    'setup.mode.auto': '自动 (推荐)',
+    'setup.mode.groups_knockout': '小组赛 + 淘汰赛',
+    'setup.mode.round_robin': '纯小组赛 (循环赛)',
+    'setup.mode.knockout': '纯淘汰赛 (单败)',
+    'setup.mode.friendly': '纯友谊赛 (不计积分)',
+    'setup.mode.hint': '"自动"会根据队伍数量和时间智能选择；其他选项是显式指定，不可用时会提示并阻止下一步。',
+    'setup.alert.mode_infeasible': '"{mode}" 模式无法在当前条件下进行：\n\n{reason}\n\n请调整人数 / 场地 / 时间，或者选择其他模式。',
+
     'setup.section.attendees': '1. 选择本周参赛选手',
     'setup.attendees.selected': '已选 {n} 人',
     'setup.attendees.quickadd.placeholder': '快速添加新选手',
@@ -157,8 +166,11 @@ const TRANSLATIONS = {
     'teams.format.recommended': '📋 推荐赛制',
     'teams.format.round_robin': '单循环赛',
     'teams.format.groups_knockout': '小组赛 + 淘汰赛 (小组: {groups}, 淘汰: {n}强)',
+    'teams.format.knockout': '单败淘汰赛 ({n}支队)',
     'teams.format.random_fair': '随机配对（公平模式）',
+    'teams.format.friendly': '纯友谊赛 (不计积分)',
     'teams.format.stats': '{ranked} 场正赛 · {slots} 个时间段 · 约 {min} 分钟',
+    'teams.format.stats_friendly': '{friendly} 场友谊赛 · {slots} 个时间段 · 约 {min} 分钟',
     'teams.format.infeasible': '⚠️ 方案不可行：{reason}',
     'teams.fallback.notice': '⚠️ 时间不足以完成完整杯赛，已自动切换为随机配对模式（按胜率分组以保证比赛公平）。每场比赛的队伍都会重新组合。',
 
@@ -172,6 +184,7 @@ const TRANSLATIONS = {
     'tour.phase.group': '小组赛',
     'tour.phase.knockout': '淘汰赛',
     'tour.phase.random_fair': '随机配对',
+    'tour.phase.friendly': '友谊赛',
     'tour.court': '场地 {n}',
     'tour.court.friendly': '场地 {n} · 自由场',
     'tour.friendly.note': '被淘汰的队伍可在此场地自由组队比赛（不计积分）',
@@ -365,6 +378,15 @@ const TRANSLATIONS = {
 
     // ─── Event setup ─────────────────────────────────────────
     'setup.title': "This Week's Event",
+    'setup.params.mode': 'Tournament mode',
+    'setup.mode.auto': 'Auto (recommended)',
+    'setup.mode.groups_knockout': 'Groups + Knockout',
+    'setup.mode.round_robin': 'Round-robin only',
+    'setup.mode.knockout': 'Single elimination',
+    'setup.mode.friendly': 'Friendly only (no points)',
+    'setup.mode.hint': '"Auto" picks based on team count and time. The other options are explicit; if the chosen mode does not fit, you\'ll be alerted and blocked.',
+    'setup.alert.mode_infeasible': '"{mode}" mode cannot run with the current settings:\n\n{reason}\n\nAdjust attendees / courts / time, or pick a different mode.',
+
     'setup.section.attendees': '1. Select attendees',
     'setup.attendees.selected': '{n} selected',
     'setup.attendees.quickadd.placeholder': 'Quick add a new player',
@@ -391,8 +413,11 @@ const TRANSLATIONS = {
     'teams.format.recommended': '📋 Recommended format',
     'teams.format.round_robin': 'Round-robin',
     'teams.format.groups_knockout': 'Groups + Knockout (groups: {groups}, top {n} advance)',
+    'teams.format.knockout': 'Single elimination ({n} teams)',
     'teams.format.random_fair': 'Random pairing (fair mode)',
+    'teams.format.friendly': 'Friendly only (no points)',
     'teams.format.stats': '{ranked} ranked matches · {slots} slots · ~{min} min',
+    'teams.format.stats_friendly': '{friendly} friendly matches · {slots} slots · ~{min} min',
     'teams.format.infeasible': '⚠️ Plan not feasible: {reason}',
     'teams.fallback.notice': '⚠️ Not enough time for a full cup. Switched to random-pairing mode (cohorts grouped by win rate to keep matches fair). Teams change every match.',
 
@@ -406,6 +431,7 @@ const TRANSLATIONS = {
     'tour.phase.group': 'Group',
     'tour.phase.knockout': 'Knockout',
     'tour.phase.random_fair': 'Random pairing',
+    'tour.phase.friendly': 'Friendly',
     'tour.court': 'Court {n}',
     'tour.court.friendly': 'Court {n} · Friendly',
     'tour.friendly.note': 'Eliminated teams can freely play here (no points awarded)',

@@ -269,6 +269,96 @@ function recommendFormat(teams, numCourts, matchDuration, totalTime) {
   return planRoundRobin(teams, numCourts, matchDuration, totalTime);
 }
 
+/* ─── Pure single-elimination knockout ──────────────────────── */
+//
+// Standard single-elim bracket. Top seeds are placed on opposite
+// sides via the recursive seedBracket() pattern so the strongest
+// teams can't meet until the final.
+//
+// Constraint: requires the team count to be a power of 2 (2/4/8/16/
+// 32). Byes would let us accept arbitrary counts but introduce
+// awkward seeding choices that the user can't tweak through the UI;
+// for v1 we just refuse and tell the user to switch modes or change
+// the team count.
+function planPureKnockout(teams, numCourts, matchDuration, totalTime) {
+  const T = teams.length;
+  if (T < 2) return { fits: false, reason: '至少需要 2 支队伍', format: 'knockout' };
+  if ((T & (T - 1)) !== 0) {
+    return {
+      fits: false,
+      reason: `纯淘汰赛要求队伍数为 2 的幂次（2/4/8/16/32），当前 ${T} 队`,
+      format: 'knockout',
+    };
+  }
+
+  const maxSlots = Math.floor(totalTime / matchDuration);
+  if (maxSlots <= 0) return { fits: false, reason: '时间不足', format: 'knockout' };
+
+  const schedule = [];
+  let slotIdx = 0;
+
+  // Seeded order: top seed and 2nd seed end up on opposite sides
+  let current = seedBracket(T);
+  let knRound = 1;
+
+  while (current.length > 1) {
+    const roundMatches = [];
+    const nextRound = [];
+    for (let i = 0; i < current.length; i += 2) {
+      roundMatches.push([current[i], current[i + 1]]);
+      nextRound.push(`KR${knRound}-M${Math.floor(i / 2) + 1}-W`);
+    }
+
+    for (let bs = 0; bs < roundMatches.length; bs += numCourts) {
+      const batch = roundMatches.slice(bs, bs + numCourts);
+      if (slotIdx >= maxSlots) {
+        return { fits: false, reason: '淘汰赛时间不足', format: 'knockout' };
+      }
+      schedule.push({
+        phase: 'knockout',
+        round: `KR${knRound}`,
+        slot: slotIdx + 1,
+        matches: batch.map(([a, b], i) => ({
+          court: i + 1, team_a: a, team_b: b, kind: 'ranked',
+        })),
+      });
+      slotIdx++;
+    }
+
+    current = nextRound;
+    knRound++;
+  }
+
+  return {
+    format: 'knockout',
+    schedule,
+    fits: true,
+    slotsUsed: slotIdx,
+    knockout_size: T,
+  };
+}
+
+// Standard tennis-style bracket seeding: returns an array of length n
+// where adjacent pairs are the round-1 pairings, and the seeding
+// guarantees the top two seeds (0, 1) end up on opposite sides of the
+// bracket so they can only meet in the final.
+//
+//   seedBracket(2) = [0, 1]              → (0 vs 1)
+//   seedBracket(4) = [0, 3, 1, 2]        → (0v3, 1v2)
+//   seedBracket(8) = [0, 7, 3, 4, 1, 6, 2, 5]
+//
+// `n` MUST be a power of 2.
+function seedBracket(n) {
+  if (n === 2) return [0, 1];
+  const half = seedBracket(n / 2);
+  const out = [];
+  for (let i = 0; i < half.length; i++) {
+    out.push(half[i]);
+    out.push(n - 1 - half[i]);
+  }
+  return out;
+}
+
 /* ─── Random-fair fallback ──────────────────────────────────── */
 /**
  * Used when neither groups+knockout nor round-robin fit in the time budget.
@@ -295,25 +385,27 @@ function recommendFormat(teams, numCourts, matchDuration, totalTime) {
 function planRandomFairFallback({
   attendeeIds, playersMap, teamSize, teamsPerMatch,
   numCourts, matchDuration, totalTime,
+  kind = 'ranked',     // 'ranked' (default) or 'friendly' (for 纯友谊赛)
+  format = 'random-fair',  // override label when used as friendly mode
 }) {
   const playersPerMatch = teamSize * teamsPerMatch;
   const maxSlots = Math.floor(totalTime / matchDuration);
   const n = attendeeIds.length;
 
   if (maxSlots <= 0) {
-    return { fits: false, reason: '时间不足', format: 'random-fair' };
+    return { fits: false, reason: '时间不足', format };
   }
   if (n < playersPerMatch) {
     return {
       fits: false,
       reason: `至少需要 ${playersPerMatch} 人，当前 ${n} 人`,
-      format: 'random-fair',
+      format,
     };
   }
 
   const courtsPerSlot = Math.min(numCourts, Math.floor(n / playersPerMatch));
   if (courtsPerSlot <= 0) {
-    return { fits: false, reason: '人数不足以填满一个场地', format: 'random-fair' };
+    return { fits: false, reason: '人数不足以填满一个场地', format };
   }
 
   const wr = (id) => playerWinRate(playersMap[id]);
@@ -379,7 +471,7 @@ function planRandomFairFallback({
         court: courtIdx + 1,
         team_a: teamIndices[0],
         team_b: teamIndices[1] !== undefined ? teamIndices[1] : teamIndices[0],
-        kind: 'ranked',
+        kind,
       });
 
       // Bump usage
@@ -391,7 +483,7 @@ function planRandomFairFallback({
 
     if (slotMatches.length > 0) {
       schedule.push({
-        phase: 'random-fair',
+        phase: format === 'friendly' ? 'friendly' : 'random-fair',
         round: slotIdx + 1,
         slot: slotIdx + 1,
         matches: slotMatches,
@@ -400,11 +492,11 @@ function planRandomFairFallback({
   }
 
   if (schedule.length === 0) {
-    return { fits: false, reason: '人数不足以填满一个场地', format: 'random-fair' };
+    return { fits: false, reason: '人数不足以填满一个场地', format };
   }
 
   return {
-    format: 'random-fair',
+    format,
     schedule,
     teams,
     fits: true,
@@ -412,25 +504,55 @@ function planRandomFairFallback({
   };
 }
 
-/**
- * Wraps recommendFormat: try the cup formats first, then fall back to
- * the random-fair scheduler if neither fit. Used by the UI's
- * generateTeams() flow so the user always gets *some* schedule.
- */
-function recommendFormatOrFallback({
-  teams, attendeeIds, playersMap, teamSize, teamsPerMatch,
-  numCourts, matchDuration, totalTime,
-}) {
-  const cupPlan = recommendFormat(teams, numCourts, matchDuration, totalTime);
-  if (cupPlan.fits) return { plan: cupPlan, fallback: false };
+/* ─── Friendly mode (no points) ─────────────────────────────── */
+//
+// Wraps planRandomFairFallback so that all matches are stamped as
+// `kind: 'friendly'`. commitEvent's accumulateDelta walker only
+// counts ranked matches, so a friendly tournament records results
+// for the user's convenience but never touches anyone's points,
+// wins, draws, or losses. This is the explicit "纯友谊赛 / pure
+// friendly" mode the user can pick from the setup view.
+function planFriendly(opts) {
+  return planRandomFairFallback({ ...opts, kind: 'friendly', format: 'friendly' });
+}
 
-  const fallback = planRandomFairFallback({
-    attendeeIds, playersMap, teamSize, teamsPerMatch,
-    numCourts, matchDuration, totalTime,
-  });
-  if (fallback.fits) {
-    return { plan: fallback, fallback: true, cupReason: cupPlan.reason };
+/* ─── Mode dispatch ─────────────────────────────────────────── */
+//
+// Single entry point for the UI: takes a mode string (one of the
+// five the user can select) and dispatches to the matching planner.
+// Returns the planner's result object (with `fits`, `reason`, etc.)
+// so callers can uniformly check `plan.fits` and surface
+// `plan.reason` to the user.
+//
+//   - 'auto'             → recommendFormat (groups+knockout, then round-robin)
+//   - 'round-robin'      → planRoundRobin              (uses fixed teams)
+//   - 'groups-knockout'  → planGroupsKnockout          (uses fixed teams)
+//   - 'knockout'         → planPureKnockout            (uses fixed teams)
+//   - 'friendly'         → planFriendly                (per-match teams,
+//                                                       no points awarded)
+//
+// `auto` is the default for backward compatibility — it preserves
+// the original "smart pick" behaviour for users who don't care.
+// The other four are explicit overrides; if the chosen one is
+// infeasible, the UI alerts and refuses to proceed (no auto-fallback).
+function planByMode(mode, opts) {
+  const { teams, attendeeIds, playersMap, teamSize, teamsPerMatch,
+          numCourts, matchDuration, totalTime } = opts;
+  switch (mode) {
+    case 'auto':
+      return recommendFormat(teams, numCourts, matchDuration, totalTime);
+    case 'round-robin':
+      return planRoundRobin(teams, numCourts, matchDuration, totalTime);
+    case 'groups-knockout':
+      return planGroupsKnockout(teams, numCourts, matchDuration, totalTime);
+    case 'knockout':
+      return planPureKnockout(teams, numCourts, matchDuration, totalTime);
+    case 'friendly':
+      return planFriendly({
+        attendeeIds, playersMap, teamSize, teamsPerMatch,
+        numCourts, matchDuration, totalTime,
+      });
+    default:
+      return { fits: false, reason: `未知模式: ${mode}`, format: mode };
   }
-  // Even the fallback failed — surface the original cup plan's error
-  return { plan: cupPlan, fallback: false };
 }

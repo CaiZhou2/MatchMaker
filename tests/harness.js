@@ -206,7 +206,10 @@ function createHarness(opts = {}) {
     get planRoundRobin() { return ctx.planRoundRobin; },
     get planGroupsKnockout() { return ctx.planGroupsKnockout; },
     get planRandomFairFallback() { return ctx.planRandomFairFallback; },
-    get recommendFormatOrFallback() { return ctx.recommendFormatOrFallback; },
+    get planPureKnockout() { return ctx.planPureKnockout; },
+    get planFriendly() { return ctx.planFriendly; },
+    get planByMode() { return ctx.planByMode; },
+    get seedBracket() { return ctx.seedBracket; },
     get playerWinRate() { return ctx.playerWinRate; },
     // app.js exports (function declarations attach to globalThis)
     get parseBulkRoster() { return ctx.parseBulkRoster; },
