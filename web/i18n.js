@@ -100,6 +100,16 @@ const TRANSLATIONS = {
     'db.select.confirm1': '确定要删除选中的 {n} 名选手吗？所有积分和历史数据都将丢失。',
     'db.select.confirm2': '再次确认：删除？',
 
+    // ─── Player detail ──────────────────────────────────────
+    'player.stats.points': '积分',
+    'player.stats.winrate': '胜率',
+    'player.stats.games': '比赛场次',
+    'player.stats.weeks': '参与周数',
+    'player.stats.spent': '累计消费',
+    'player.stats.wdl': '胜/平/负',
+    'player.h2h.title': '对位胜率',
+    'player.h2h.empty': '尚无对位记录。完成几场比赛后这里会出现统计。',
+
     // ─── Event setup ─────────────────────────────────────────
     'setup.title': '本周比赛设置',
     'setup.section.attendees': '1. 选择本周参赛选手',
@@ -150,6 +160,7 @@ const TRANSLATIONS = {
     'tour.result.a': 'A胜',
     'tour.result.d': '平局',
     'tour.result.b': 'B胜',
+    'tour.score.placeholder': '得分',
     'tour.btn.finish': '完成比赛 & 更新积分',
     'tour.confirm.finish': '确认比赛结束？积分将写入数据库。',
     'tour.error.finish': '完成比赛时出错：{msg}',
@@ -297,6 +308,16 @@ const TRANSLATIONS = {
     'db.select.confirm1': 'Delete the {n} selected player(s)? All points and history will be lost.',
     'db.select.confirm2': 'Really delete?',
 
+    // ─── Player detail ──────────────────────────────────────
+    'player.stats.points': 'Points',
+    'player.stats.winrate': 'Win Rate',
+    'player.stats.games': 'Games',
+    'player.stats.weeks': 'Weeks',
+    'player.stats.spent': 'Total Spent',
+    'player.stats.wdl': 'W/D/L',
+    'player.h2h.title': 'Head-to-Head',
+    'player.h2h.empty': 'No head-to-head records yet. Stats appear after a few completed matches.',
+
     // ─── Event setup ─────────────────────────────────────────
     'setup.title': "This Week's Event",
     'setup.section.attendees': '1. Select attendees',
@@ -347,6 +368,7 @@ const TRANSLATIONS = {
     'tour.result.a': 'A wins',
     'tour.result.d': 'Draw',
     'tour.result.b': 'B wins',
+    'tour.score.placeholder': 'score',
     'tour.btn.finish': 'Finish & update points',
     'tour.confirm.finish': 'End the tournament? Points will be written to the database.',
     'tour.error.finish': 'Failed to finish tournament: {msg}',

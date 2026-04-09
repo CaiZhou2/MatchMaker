@@ -15,7 +15,8 @@
   <div id="app">
     <!-- ─── Header ──────────────────────────────────────── -->
     <header class="header">
-      <div class="header-lang">
+      <div class="header-controls">
+        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">🌙</button>
         <select id="lang-select" aria-label="Language">
           <option value="zh-CN">简体中文</option>
           <option value="en-US">English</option>
@@ -103,6 +104,21 @@
           <input type="file" id="import-file" accept=".json,application/json" style="display:none;">
           <div class="hint" data-i18n="db.io.hint"></div>
         </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- VIEW: PLAYER DETAIL (head-to-head, etc.)             -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="view hidden" id="view-player">
+      <div class="card">
+        <div class="view-header">
+          <button class="btn-back" data-goto="db" data-i18n="common.back"></button>
+          <h2 id="player-detail-name"></h2>
+        </div>
+        <div id="player-detail-stats" class="player-stats"></div>
+        <h3 data-i18n="player.h2h.title"></h3>
+        <div id="player-detail-h2h"></div>
       </div>
     </section>
 

@@ -9,7 +9,7 @@
  */
 
 /* ─── View Router ───────────────────────────────────────────── */
-const Views = ['home', 'db', 'setup', 'teams', 'tournament', 'done', 'history'];
+const Views = ['home', 'db', 'setup', 'teams', 'tournament', 'done', 'history', 'player'];
 let currentView = 'home';
 
 function showView(name) {
@@ -25,6 +25,7 @@ function showView(name) {
   if (name === 'teams') renderTeams();
   if (name === 'tournament') renderTournament();
   if (name === 'history') renderHistory();
+  if (name === 'player') renderPlayerDetail();
 }
 
 function rerenderCurrentView() {
@@ -44,6 +45,7 @@ const ui = {
   expandedHistory: new Set(),
   dbSelectMode: false,
   dbSelected: new Set(),  // player ids
+  detailPlayerId: null,   // currently-viewed player on the detail page
 };
 
 /* ─── Small helpers ─────────────────────────────────────────── */
@@ -237,8 +239,10 @@ function renderDB() {
       };
     });
   } else {
+    // Single-row delete button (× on the right)
     listDiv.querySelectorAll('[data-del]').forEach(btn => {
-      btn.onclick = () => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
         const id = btn.dataset.del;
         const p = Storage.getPlayer(id);
         if (confirm(t('db.confirm.delete', { name: p.name }))) {
@@ -247,7 +251,61 @@ function renderDB() {
         }
       };
     });
+    // Tap a row (anywhere outside the × button) to open the player
+    // detail view (head-to-head, etc.).
+    listDiv.querySelectorAll('.db-row').forEach(row => {
+      row.classList.add('clickable');
+      row.onclick = () => {
+        ui.detailPlayerId = row.dataset.id;
+        showView('player');
+      };
+    });
   }
+}
+
+/* ─── PLAYER DETAIL ──────────────────────────────────────── */
+function renderPlayerDetail() {
+  const player = ui.detailPlayerId ? Storage.getPlayer(ui.detailPlayerId) : null;
+  if (!player) {
+    showView('db');
+    return;
+  }
+
+  document.getElementById('player-detail-name').textContent = player.name;
+
+  const games = Storage.getTotalGames(player);
+  const wr = games > 0 ? fmtPct(Storage.getWinRate(player)) : '—';
+  const statsDiv = document.getElementById('player-detail-stats');
+  statsDiv.innerHTML = `
+    <div class="stat-block"><div class="val">${player.points}</div><div class="lbl">${escapeHtml(t('player.stats.points'))}</div></div>
+    <div class="stat-block"><div class="val">${escapeHtml(wr)}</div><div class="lbl">${escapeHtml(t('player.stats.winrate'))}</div></div>
+    <div class="stat-block"><div class="val">${games}</div><div class="lbl">${escapeHtml(t('player.stats.games'))}</div></div>
+    <div class="stat-block"><div class="val">${player.events}</div><div class="lbl">${escapeHtml(t('player.stats.weeks'))}</div></div>
+    <div class="stat-block"><div class="val">${escapeHtml(fmtMoney(player.totalSpent || 0))}</div><div class="lbl">${escapeHtml(t('player.stats.spent'))}</div></div>
+    <div class="stat-block"><div class="val">${player.wins}/${player.draws}/${player.losses}</div><div class="lbl">${escapeHtml(t('player.stats.wdl'))}</div></div>
+  `;
+
+  const h2hDiv = document.getElementById('player-detail-h2h');
+  const h2h = Storage.getHeadToHead(player.id);
+  const opponents = Object.entries(h2h)
+    .map(([oppId, rec]) => ({ id: oppId, ...rec }))
+    .sort((a, b) => b.games - a.games || b.wins - a.wins || a.name.localeCompare(b.name));
+
+  if (opponents.length === 0) {
+    h2hDiv.innerHTML = `<p class="empty">${escapeHtml(t('player.h2h.empty'))}</p>`;
+    return;
+  }
+
+  h2hDiv.innerHTML = opponents.map(opp => {
+    const rate = opp.games > 0 ? opp.wins / opp.games : 0;
+    return `
+      <div class="h2h-row">
+        <span class="h2h-name">${escapeHtml(opp.name)}</span>
+        <span class="h2h-record">${opp.wins}-${opp.draws}-${opp.losses}</span>
+        <span class="h2h-rate">${escapeHtml(fmtPct(rate))}</span>
+      </div>
+    `;
+  }).join('');
 }
 
 function toggleDbSelectMode() {
@@ -307,7 +365,8 @@ function renderHistory() {
     const rankedMatches = h.plan?.schedule.reduce(
       (s, slot) => s + slot.matches.filter(m => m.kind === 'ranked').length, 0
     ) || 0;
-    const completedMatches = Object.keys(h.results || {}).length;
+    const completedMatches = Object.values(h.results || {})
+      .filter(e => Storage._helpers.getMatchResult(e) != null).length;
 
     const summary = t('hist.row.summary', {
       teams: h.teams.length,
@@ -387,12 +446,17 @@ function renderHistoryDetail(h) {
     slot.matches.forEach(m => {
       if (m.kind !== 'ranked') return;
       const key = `${slotIdx}:${m.court}`;
-      const result = h.results?.[key];
+      const entry = h.results?.[key];
+      const result = Storage._helpers.getMatchResult(entry);
       if (!result) return;
       const evLike = { plan: h.plan, teams: h.teams, results: h.results };
       const ta = resolveTeamFromHist(m.team_a, evLike);
       const tb = resolveTeamFromHist(m.team_b, evLike);
       if (!ta || !tb) return;
+      const scores = Storage._helpers.getMatchScores(entry);
+      const scoreText = scores.a !== null && scores.b !== null
+        ? ` ${scores.a}-${scores.b}`
+        : '';
       const resultText =
         result === 'A' ? t('hist.result.a_won', { name: ta.name })
       : result === 'B' ? t('hist.result.b_won', { name: tb.name })
@@ -400,7 +464,7 @@ function renderHistoryDetail(h) {
       matches.push(`
         <div class="hist-match">
           <span class="hist-match-phase">${escapeHtml(phaseDisplay(slot.phase))}</span>
-          <span>${escapeHtml(ta.name)} vs ${escapeHtml(tb.name)}</span>
+          <span>${escapeHtml(ta.name)} vs ${escapeHtml(tb.name)}${escapeHtml(scoreText)}</span>
           <span class="hist-match-result">${escapeHtml(resultText)}</span>
         </div>
       `);
@@ -655,10 +719,12 @@ function renderTournament() {
     return;
   }
 
-  // Progress
+  // Progress — only count entries with a recorded *result*. Score-only
+  // entries (e.g. mid-typing) don't count as completed matches.
   const total = ev.plan.schedule.reduce(
     (s, slot) => s + slot.matches.filter(m => m.kind === 'ranked').length, 0);
-  const done = Object.keys(ev.results || {}).length;
+  const done = Object.values(ev.results || {})
+    .filter(entry => Storage._helpers.getMatchResult(entry) != null).length;
   document.getElementById('tournament-progress').innerHTML = `
     <div class="progress-bar"><div class="progress-fill" style="width:${total ? (done / total * 100) : 0}%"></div></div>
     <div class="progress-text">${escapeHtml(t('tour.progress', { done, total }))}</div>
@@ -687,6 +753,23 @@ function renderTournament() {
     };
   });
 
+  // Score inputs save on blur (so the user can finish typing first) and
+  // also on Enter. Click-into-input doesn't fire any handler — only the
+  // committed change does.
+  scheduleDiv.querySelectorAll('[data-score]').forEach(input => {
+    const commit = () => {
+      const [slotIdx, court, side] = input.dataset.score.split(':');
+      recordScore(parseInt(slotIdx, 10), parseInt(court, 10), side, input.value);
+    };
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        input.blur();  // triggers commit
+      }
+    });
+  });
+
   const finishBtn = document.getElementById('btn-finish-tournament');
   finishBtn.classList.toggle('hidden', done < total);
 }
@@ -705,7 +788,9 @@ function renderMatch(match, slotIdx, ev) {
   const ta = resolveTeamDisplay(match.team_a, ev);
   const tb = resolveTeamDisplay(match.team_b, ev);
   const key = `${slotIdx}:${match.court}`;
-  const result = ev.results?.[key];
+  const entry = ev.results?.[key];
+  const result = Storage._helpers.getMatchResult(entry);
+  const scores = Storage._helpers.getMatchScores(entry);
 
   if (match.kind === 'friendly') {
     return `
@@ -717,6 +802,8 @@ function renderMatch(match, slotIdx, ev) {
   }
 
   const btnCls = r => `result-btn ${result === r ? 'active' : ''}`;
+  const scoreA = scores.a !== null ? scores.a : '';
+  const scoreB = scores.b !== null ? scores.b : '';
   return `
     <div class="match-row">
       <div class="court-label">${escapeHtml(t('tour.court', { n: match.court }))}</div>
@@ -724,6 +811,15 @@ function renderMatch(match, slotIdx, ev) {
         <div class="match-team ${result === 'A' ? 'winner' : ''}">${escapeHtml(ta.name)}<div class="match-members">${escapeHtml(ta.members)}</div></div>
         <div class="vs">${escapeHtml(t('tour.vs'))}</div>
         <div class="match-team ${result === 'B' ? 'winner' : ''}">${escapeHtml(tb.name)}<div class="match-members">${escapeHtml(tb.members)}</div></div>
+      </div>
+      <div class="score-inputs">
+        <input class="score-input" type="number" inputmode="numeric" min="0" max="999"
+               value="${scoreA}" placeholder="${escapeHtml(t('tour.score.placeholder'))}"
+               data-score="${slotIdx}:${match.court}:a">
+        <span class="score-dash">−</span>
+        <input class="score-input" type="number" inputmode="numeric" min="0" max="999"
+               value="${scoreB}" placeholder="${escapeHtml(t('tour.score.placeholder'))}"
+               data-score="${slotIdx}:${match.court}:b">
       </div>
       <div class="result-btns">
         <button class="${btnCls('A')}" data-result-btn="${slotIdx}:${match.court}:A">${escapeHtml(t('tour.result.a'))}</button>
@@ -765,17 +861,81 @@ function placeholderLabel(ref) {
   return ref;
 }
 
-function recordResult(slotIdx, court, result) {
+// Reads any prior entry, merges fresh fields, and writes the unified
+// `{ result, scoreA?, scoreB? }` object back. Pass `partial` like
+// `{ result: 'A' }` or `{ scoreA: 21 }` and the rest is preserved.
+function updateMatchEntry(slotIdx, court, partial) {
   const ev = Storage.getCurrentEvent();
   if (!ev) return;
   if (!ev.results) ev.results = {};
   const key = `${slotIdx}:${court}`;
-  if (ev.results[key] === result) {
+
+  // Normalize the existing entry into the object form
+  const prev = ev.results[key];
+  let next;
+  if (prev == null) {
+    next = {};
+  } else if (typeof prev === 'string') {
+    next = { result: prev };
+  } else {
+    next = { ...prev };
+  }
+  Object.assign(next, partial);
+
+  // If everything got cleared (no result and no scores), drop the entry
+  if (next.result == null
+      && (next.scoreA == null || Number.isNaN(next.scoreA))
+      && (next.scoreB == null || Number.isNaN(next.scoreB))) {
     delete ev.results[key];
   } else {
-    ev.results[key] = result;
+    // Strip undefined / NaN so the persisted shape stays clean
+    if (next.scoreA == null || Number.isNaN(next.scoreA)) delete next.scoreA;
+    if (next.scoreB == null || Number.isNaN(next.scoreB)) delete next.scoreB;
+    ev.results[key] = next;
   }
   Storage.setCurrentEvent(ev);
+}
+
+function recordResult(slotIdx, court, result) {
+  const ev = Storage.getCurrentEvent();
+  if (!ev) return;
+  const key = `${slotIdx}:${court}`;
+  const prevResult = Storage._helpers.getMatchResult(ev.results?.[key]);
+  // Tapping the same button again clears just the result (keeps scores
+  // if the user had already typed any).
+  updateMatchEntry(slotIdx, court, { result: prevResult === result ? null : result });
+  renderTournament();
+}
+
+function recordScore(slotIdx, court, side, raw) {
+  const trimmed = String(raw).trim();
+  let value = null;
+  if (trimmed !== '') {
+    const n = Number(trimmed);
+    if (Number.isFinite(n) && n >= 0) value = n;
+  }
+
+  // Save the score on the entry
+  const partial = side === 'a' ? { scoreA: value } : { scoreB: value };
+  updateMatchEntry(slotIdx, court, partial);
+
+  // Auto-derive the result from the new pair of scores when both are
+  // present. This is the typical "I just typed 21-15" flow — the user
+  // shouldn't also have to tap a result button. We DO NOT clear an
+  // existing result if scores become incomplete; the user can still
+  // override by tapping a button.
+  const ev = Storage.getCurrentEvent();
+  if (!ev) return;
+  const key = `${slotIdx}:${court}`;
+  const scores = Storage._helpers.getMatchScores(ev.results?.[key]);
+  if (scores.a !== null && scores.b !== null) {
+    let derived;
+    if (scores.a > scores.b) derived = 'A';
+    else if (scores.a < scores.b) derived = 'B';
+    else derived = 'D';
+    updateMatchEntry(slotIdx, court, { result: derived });
+  }
+
   renderTournament();
 }
 
@@ -893,12 +1053,14 @@ function buildEventSummary(ev) {
     earned[pid] = { points: 0, w: 0, d: 0, l: 0 };
   });
 
-  Object.entries(ev.results || {}).forEach(([key, result]) => {
+  Object.entries(ev.results || {}).forEach(([key, entry]) => {
     const match = findMatch(ev, key);
     if (!match || match.kind !== 'ranked') return;
     const ta = resolveTeamForSummary(match.team_a, ev);
     const tb = resolveTeamForSummary(match.team_b, ev);
     if (!ta || !tb) return;
+    const result = Storage._helpers.getMatchResult(entry);
+    if (!result) return;
     if (result === 'A') {
       ta.players.forEach(pid => { if (earned[pid]) { earned[pid].points += 3; earned[pid].w++; } });
       tb.players.forEach(pid => { if (earned[pid]) earned[pid].l++; });
@@ -1196,6 +1358,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize i18n first — applies static string translations to the DOM.
   I18N.init();
 
+  // Refresh the theme toggle's icon now that the button exists in the DOM.
+  // (applyTheme() was called pre-DOMContentLoaded to avoid a flash; this
+  // call just updates the button glyph.)
+  applyTheme(document.documentElement.dataset.theme || 'light');
+  document.getElementById('theme-toggle').onclick = toggleTheme;
+
   // Language selector
   const langSel = document.getElementById('lang-select');
   langSel.value = I18N.getLang();
@@ -1291,6 +1459,48 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initial render
   showView('home');
 });
+
+/* ─── Theme (light / dark) ──────────────────────────────────── */
+const THEME_KEY = 'matchmaker-theme';
+
+function getStoredTheme() {
+  try {
+    return localStorage.getItem(THEME_KEY);
+  } catch (e) { return null; }
+}
+
+function setStoredTheme(theme) {
+  try {
+    if (theme) localStorage.setItem(THEME_KEY, theme);
+    else localStorage.removeItem(THEME_KEY);
+  } catch (e) { /* ignore */ }
+}
+
+function detectInitialTheme() {
+  const saved = getStoredTheme();
+  if (saved === 'light' || saved === 'dark') return saved;
+  if (typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+  return 'light';
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
+function toggleTheme() {
+  const current = document.documentElement.dataset.theme || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  setStoredTheme(next);
+}
+
+// Apply ASAP, before DOMContentLoaded, to avoid a flash of light theme
+applyTheme(detectInitialTheme());
 
 /* ─── PWA ───────────────────────────────────────────────────── */
 if ('serviceWorker' in navigator) {

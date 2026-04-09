@@ -152,12 +152,14 @@ const Storage = {
       delta[pid] = { points: 0, wins: 0, draws: 0, losses: 0, spent: 0 };
     });
 
-    Object.entries(ev.results || {}).forEach(([key, result]) => {
+    Object.entries(ev.results || {}).forEach(([key, entry]) => {
       const match = findMatchByKey(ev.plan, key);
       if (!match || match.kind !== 'ranked') return;
       const ta = resolveTeam(match.team_a, ev);
       const tb = resolveTeam(match.team_b, ev);
       if (!ta || !tb) return;
+      const result = getMatchResult(entry);
+      if (!result) return;
       accumulateDelta(delta, ta, tb, result);
     });
 
@@ -260,6 +262,86 @@ const Storage = {
     this.save();
   },
 
+  /**
+   * Walks the history archive and tallies head-to-head records for one
+   * player. Returns a map keyed by opponent player id, with counts of
+   * how many times that opponent has been on the OPPOSING team in a
+   * ranked match together with this player.
+   *
+   *   { [opponentId]: { name, wins, draws, losses, games } }
+   *
+   * - `wins`   = matches where playerId's team won the result
+   * - `losses` = matches where opponent's team won
+   * - `draws`  = drawn matches
+   * - `name`   = pulled from the history entry's nameSnapshot first
+   *              (so deleted players still show up by name), falling
+   *              back to the live DB row.
+   *
+   * Knockout placeholder refs (e.g. "G1-1" / "KR1-M2-W") are resolved
+   * via the existing _helpers.resolvePlaceholder logic, which already
+   * walks the same history entry's results to figure out who advanced.
+   */
+  getHeadToHead(playerId) {
+    if (!playerId) return {};
+    const history = this.getHistory();
+    const out = {};
+
+    const ensure = (oppId, name) => {
+      if (!out[oppId]) {
+        out[oppId] = { name: name || oppId, wins: 0, draws: 0, losses: 0, games: 0 };
+      } else if (name && out[oppId].name === oppId) {
+        // Upgrade an id-only entry to a named one
+        out[oppId].name = name;
+      }
+      return out[oppId];
+    };
+
+    history.forEach(h => {
+      if (!h.plan || !h.plan.schedule || !h.results) return;
+      const evLike = { plan: h.plan, teams: h.teams, results: h.results };
+
+      h.plan.schedule.forEach((slot, slotIdx) => {
+        slot.matches.forEach(m => {
+          if (m.kind !== 'ranked') return;
+          const key = `${slotIdx}:${m.court}`;
+          const result = getMatchResult(h.results[key]);
+          if (!result) return;
+
+          const ta = resolveTeam(m.team_a, evLike);
+          const tb = resolveTeam(m.team_b, evLike);
+          if (!ta || !tb) return;
+
+          const inA = ta.players.includes(playerId);
+          const inB = tb.players.includes(playerId);
+          if (!inA && !inB) return;
+
+          // The opponents are everyone on the team this player is NOT on.
+          const them = inA ? tb : ta;
+          const wePlayedA = inA;
+          const playerOnWinningSide =
+            (wePlayedA && result === 'A') || (!wePlayedA && result === 'B');
+          const playerOnLosingSide =
+            (wePlayedA && result === 'B') || (!wePlayedA && result === 'A');
+
+          them.players.forEach(oppId => {
+            if (!oppId) return;
+            const name =
+              h.nameSnapshot?.[oppId] ||
+              this.getPlayer(oppId)?.name ||
+              oppId;
+            const rec = ensure(oppId, name);
+            rec.games += 1;
+            if (playerOnWinningSide) rec.wins += 1;
+            else if (playerOnLosingSide) rec.losses += 1;
+            else rec.draws += 1;  // result === 'D'
+          });
+        });
+      });
+    });
+
+    return out;
+  },
+
   // ─── Import / Export ──────────────────────────────────────
   exportJSON() {
     return JSON.stringify(this.load(), null, 2);
@@ -286,6 +368,35 @@ const Storage = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────
+
+// Match results may be stored in two shapes:
+//   - legacy: a bare string 'A' | 'B' | 'D' (pre-score-entry data)
+//   - current: an object { result: 'A'|'B'|'D', scoreA?: n, scoreB?: n }
+// All readers in storage.js / app.js / tests should go through these
+// helpers so old localStorage data and old history entries keep
+// rendering correctly.
+function getMatchResult(entry) {
+  if (entry == null) return null;
+  if (typeof entry === 'string') return entry;
+  if (typeof entry === 'object' && typeof entry.result === 'string') return entry.result;
+  return null;
+}
+
+function getMatchScores(entry) {
+  if (entry && typeof entry === 'object') {
+    return {
+      a: typeof entry.scoreA === 'number' ? entry.scoreA : null,
+      b: typeof entry.scoreB === 'number' ? entry.scoreB : null,
+    };
+  }
+  return { a: null, b: null };
+}
+
+function hasMatchScores(entry) {
+  const s = getMatchScores(entry);
+  return s.a !== null && s.b !== null;
+}
+
 function findMatchByKey(plan, key) {
   if (!plan || !plan.schedule) return null;
   const [slotIdx, courtIdx] = key.split(':').map(Number);
@@ -346,15 +457,24 @@ function computeGroupTable(ev, groupIdx) {
       if (typeof a !== 'number' || typeof b !== 'number') return;
       if (!teamIndices.includes(a) || !teamIndices.includes(b)) return;
       const key = `${slotIdx}:${match.court}`;
-      const result = ev.results[key];
+      const entry = ev.results[key];
+      const result = getMatchResult(entry);
       if (!result) return;
       if (result === 'A') { stats[a].pts += 3; }
       else if (result === 'B') { stats[b].pts += 3; }
       else if (result === 'D') { stats[a].pts += 1; stats[b].pts += 1; }
+      // Score-difference tiebreaker (only when scores were entered)
+      const scores = getMatchScores(entry);
+      if (scores.a !== null && scores.b !== null) {
+        stats[a].diff += scores.a - scores.b;
+        stats[b].diff += scores.b - scores.a;
+      }
     });
   });
 
-  const sorted = Object.values(stats).sort((x, y) => y.pts - x.pts);
+  const sorted = Object.values(stats).sort((x, y) =>
+    y.pts - x.pts || y.diff - x.diff
+  );
   return sorted.map(s => ev.teams[s.teamIdx]);
 }
 
@@ -369,7 +489,7 @@ function findKnockoutWinner(ev, round, matchNum) {
       count++;
       if (count === matchNum) {
         const key = `${slotIdx}:${match.court}`;
-        const result = ev.results[key];
+        const result = getMatchResult(ev.results[key]);
         if (!result || result === 'D') return null;
         const winnerRef = result === 'A' ? match.team_a : match.team_b;
         return resolveTeam(winnerRef, ev);
@@ -396,5 +516,13 @@ function accumulateDelta(delta, teamA, teamB, result) {
   }
 }
 
-// Expose helpers for scheduler.js to reuse
-Storage._helpers = { resolveTeam, resolvePlaceholder, computeGroupTable, findKnockoutWinner };
+// Expose helpers for scheduler.js / app.js / tests to reuse
+Storage._helpers = {
+  resolveTeam,
+  resolvePlaceholder,
+  computeGroupTable,
+  findKnockoutWinner,
+  getMatchResult,
+  getMatchScores,
+  hasMatchScores,
+};
