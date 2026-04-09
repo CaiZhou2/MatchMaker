@@ -235,7 +235,7 @@ const Storage = {
 
   hasExpenseBackup() {
     const d = this.load();
-    return d.expenseBackup && Object.keys(d.expenseBackup).length > 0;
+    return !!(d.expenseBackup && Object.keys(d.expenseBackup).length > 0);
   },
 
   undoExpenseReset() {
