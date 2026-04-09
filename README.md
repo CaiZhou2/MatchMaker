@@ -180,7 +180,9 @@ MatchMaker uses the Node `node:test` built-in runner (Node 18+) for the web code
 
 ```bash
 # JS unit tests (storage, scheduler, i18n)
-node --test tests/
+node --test tests/*.test.js
+# (or, from the project root with no path, Node auto-discovers test files:)
+node --test
 
 # Python prototype tests
 python3 tests/test_scheduler.py

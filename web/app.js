@@ -40,8 +40,10 @@ const ui = {
   swapSelection: null,  // {teamIdx, playerIdx}
   pendingTeams: null,
   pendingPlan: null,
-  leaderboardTab: 'points',  // 'points' | 'winrate' | 'spent'
+  leaderboardTab: 'points',  // 'points' | 'winrate' | 'participation'
   expandedHistory: new Set(),
+  dbSelectMode: false,
+  dbSelected: new Set(),  // player ids
 };
 
 /* ─── Small helpers ─────────────────────────────────────────── */
@@ -53,7 +55,7 @@ function fmtWLD(p) {
 }
 function fmtMoney(n) {
   const v = Number(n) || 0;
-  return '¥' + v.toFixed(2);
+  return v.toFixed(2);
 }
 
 /* ─── HOME ──────────────────────────────────────────────────── */
@@ -63,11 +65,9 @@ function renderHome() {
 
   // Stats
   const totalEvents = players.reduce((m, p) => Math.max(m, p.events), 0);
-  const totalHistory = Storage.getHistory().length;
   document.getElementById('home-stats').innerHTML = `
     <div class="stat-block"><div class="val">${players.length}</div><div class="lbl">${escapeHtml(t('home.stats.players'))}</div></div>
     <div class="stat-block"><div class="val">${totalEvents}</div><div class="lbl">${escapeHtml(t('home.stats.weeks'))}</div></div>
-    <div class="stat-block"><div class="val">${totalHistory}</div><div class="lbl">${escapeHtml(t('home.stats.events'))}</div></div>
   `;
 
   // Resume button
@@ -102,9 +102,11 @@ function renderHome() {
         if (gA !== gB) return gB - gA;
         return a.name.localeCompare(b.name);
       });
-    } else { // spent
+    } else { // participation
       sorted = [...players].sort((a, b) =>
-        (b.totalSpent || 0) - (a.totalSpent || 0) || a.name.localeCompare(b.name)
+        (b.events || 0) - (a.events || 0)
+        || Storage.getTotalGames(b) - Storage.getTotalGames(a)
+        || a.name.localeCompare(b.name)
       );
     }
     const top = sorted.slice(0, 10);
@@ -117,9 +119,9 @@ function renderHome() {
       } else if (ui.leaderboardTab === 'winrate') {
         main = fmtPct(Storage.getWinRate(p));
         sub = `${t('home.lb.games', { n: Storage.getTotalGames(p) })} · ${fmtWLD(p)}`;
-      } else {
-        main = fmtMoney(p.totalSpent || 0);
-        sub = t('home.lb.events', { n: p.events });
+      } else { // participation
+        main = t('home.lb.events', { n: p.events });
+        sub = t('home.lb.games', { n: Storage.getTotalGames(p) });
       }
       return `
         <div class="lb-row">
@@ -152,6 +154,34 @@ function renderDB() {
   const players = Storage.getAllPlayers();
   const sorted = [...players].sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
 
+  // Drop any selected ids that no longer exist
+  const liveIds = new Set(sorted.map(p => p.id));
+  for (const id of [...ui.dbSelected]) {
+    if (!liveIds.has(id)) ui.dbSelected.delete(id);
+  }
+
+  // Toggle button label + controls visibility
+  document.getElementById('btn-select-mode').textContent = ui.dbSelectMode
+    ? t('db.select.cancel')
+    : t('db.select.toggle');
+  document.getElementById('db-select-controls').classList.toggle('hidden', !ui.dbSelectMode);
+
+  // Refresh the "select all" checkbox state
+  const selectAllCb = document.getElementById('db-select-all-cb');
+  if (sorted.length === 0) {
+    selectAllCb.checked = false;
+    selectAllCb.indeterminate = false;
+  } else if (ui.dbSelected.size === 0) {
+    selectAllCb.checked = false;
+    selectAllCb.indeterminate = false;
+  } else if (ui.dbSelected.size === sorted.length) {
+    selectAllCb.checked = true;
+    selectAllCb.indeterminate = false;
+  } else {
+    selectAllCb.checked = false;
+    selectAllCb.indeterminate = true;
+  }
+
   const listDiv = document.getElementById('db-player-list');
   if (sorted.length === 0) {
     listDiv.innerHTML = `<p class="empty">${escapeHtml(t('db.empty'))}</p>`;
@@ -168,30 +198,89 @@ function renderDB() {
       wld: fmtWLD(p),
       spent: fmtMoney(p.totalSpent || 0),
     });
+    const checkboxOrDelete = ui.dbSelectMode
+      ? `<input type="checkbox" class="db-row-cb" data-cb="${p.id}" ${ui.dbSelected.has(p.id) ? 'checked' : ''}>`
+      : `<button class="btn-icon" data-del="${p.id}">×</button>`;
     return `
-      <div class="db-row" data-id="${p.id}">
+      <div class="db-row ${ui.dbSelectMode && ui.dbSelected.has(p.id) ? 'selected' : ''}" data-id="${p.id}">
         <div class="db-main">
           <span class="db-name">${escapeHtml(p.name)}</span>
           <span class="db-points">${escapeHtml(mainText)}</span>
         </div>
         <div class="db-sub">
-          ${escapeHtml(statsText)}
-          <button class="btn-icon" data-del="${p.id}">×</button>
+          <span>${escapeHtml(statsText)}</span>
+          ${checkboxOrDelete}
         </div>
       </div>
     `;
   }).join('');
 
-  listDiv.querySelectorAll('[data-del]').forEach(btn => {
-    btn.onclick = () => {
-      const id = btn.dataset.del;
-      const p = Storage.getPlayer(id);
-      if (confirm(t('db.confirm.delete', { name: p.name }))) {
-        Storage.deletePlayer(id);
+  if (ui.dbSelectMode) {
+    // Tapping anywhere on the row toggles its selection
+    listDiv.querySelectorAll('.db-row').forEach(row => {
+      row.onclick = (e) => {
+        // Avoid double-toggle when clicking the checkbox itself
+        if (e.target.classList && e.target.classList.contains('db-row-cb')) return;
+        const id = row.dataset.id;
+        if (ui.dbSelected.has(id)) ui.dbSelected.delete(id);
+        else ui.dbSelected.add(id);
         renderDB();
-      }
-    };
-  });
+      };
+    });
+    listDiv.querySelectorAll('[data-cb]').forEach(cb => {
+      cb.onclick = (e) => {
+        e.stopPropagation();
+        const id = cb.dataset.cb;
+        if (cb.checked) ui.dbSelected.add(id);
+        else ui.dbSelected.delete(id);
+        renderDB();
+      };
+    });
+  } else {
+    listDiv.querySelectorAll('[data-del]').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.del;
+        const p = Storage.getPlayer(id);
+        if (confirm(t('db.confirm.delete', { name: p.name }))) {
+          Storage.deletePlayer(id);
+          renderDB();
+        }
+      };
+    });
+  }
+}
+
+function toggleDbSelectMode() {
+  ui.dbSelectMode = !ui.dbSelectMode;
+  ui.dbSelected.clear();
+  renderDB();
+}
+
+function handleDbSelectAll(checked) {
+  const players = Storage.getAllPlayers();
+  if (checked) {
+    players.forEach(p => ui.dbSelected.add(p.id));
+  } else {
+    ui.dbSelected.clear();
+  }
+  renderDB();
+}
+
+function handleDeleteSelected() {
+  if (ui.dbSelected.size === 0) {
+    alert(t('db.select.empty'));
+    return;
+  }
+  const count = ui.dbSelected.size;
+  // Double confirm
+  if (!confirm(t('db.select.confirm1', { n: count }))) return;
+  if (!confirm(t('db.select.confirm2'))) return;
+  for (const id of ui.dbSelected) {
+    Storage.deletePlayer(id);
+  }
+  ui.dbSelected.clear();
+  ui.dbSelectMode = false;
+  renderDB();
 }
 
 /* ─── HISTORY ───────────────────────────────────────────────── */
@@ -379,17 +468,39 @@ function renderTeams() {
 
   const teams = ui.pendingTeams;
   const teamSize = parseInt(document.getElementById('team-size').value, 10) || 2;
+  const display = document.getElementById('teams-display');
+
+  // Reshuffle / Manual-swap controls only make sense for fixed cup teams.
+  // The fallback random-fair mode generates per-match teams that change
+  // every slot, so swapping is meaningless there.
+  const swapBtn = document.getElementById('btn-swap-mode');
+  const reshuffleBtn = document.getElementById('btn-reshuffle');
+  if (ui.fallbackMode) {
+    swapBtn.classList.add('hidden');
+    reshuffleBtn.classList.add('hidden');
+
+    document.getElementById('teams-hint').textContent =
+      t('teams.fallback.notice');
+
+    // In fallback mode the teams display becomes a per-slot match preview
+    // (rather than a static team-cards list).
+    display.innerHTML = renderFallbackPreview(ui.pendingPlan);
+    renderFormatPreview();
+    return;
+  }
+
+  swapBtn.classList.remove('hidden');
+  reshuffleBtn.classList.remove('hidden');
 
   document.getElementById('teams-hint').textContent = ui.swapMode
     ? t('teams.hint.swap', { count: teams.length, size: teamSize })
     : t('teams.hint', { count: teams.length, size: teamSize });
 
   // Swap-mode button label
-  document.getElementById('btn-swap-mode').textContent = ui.swapMode
+  swapBtn.textContent = ui.swapMode
     ? t('teams.btn.swap.done')
     : t('teams.btn.swap.start');
 
-  const display = document.getElementById('teams-display');
   display.innerHTML = teams.map((team, ti) => `
     <div class="team-card">
       <div class="team-card-head">${escapeHtml(team.name)}</div>
@@ -420,6 +531,38 @@ function renderTeams() {
 
   // Format preview
   renderFormatPreview();
+}
+
+// Renders a slot-by-slot match preview for the random-fair fallback.
+// Each match shows the player names directly because the per-match
+// teams are short-lived and have no meaningful "team identity".
+function renderFallbackPreview(plan) {
+  const sep = t('text.name.separator');
+  const nameOf = (pid) => Storage.getPlayer(pid)?.name || '?';
+  return plan.schedule.map(slot => {
+    const matches = slot.matches.map(m => {
+      const teamA = plan.teams[m.team_a];
+      const teamB = plan.teams[m.team_b];
+      const aNames = teamA.players.map(nameOf).map(escapeHtml).join(sep);
+      const bNames = teamB.players.map(nameOf).map(escapeHtml).join(sep);
+      return `
+        <div class="fallback-match">
+          <div class="fallback-court">${escapeHtml(t('tour.court', { n: m.court }))}</div>
+          <div class="fallback-vs">
+            <span class="fallback-side">${aNames}</span>
+            <span class="vs">${escapeHtml(t('tour.vs'))}</span>
+            <span class="fallback-side">${bNames}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+    return `
+      <div class="fallback-slot">
+        <div class="fallback-slot-head">${escapeHtml(t('tour.slot', { n: slot.slot }))}</div>
+        ${matches}
+      </div>
+    `;
+  }).join('');
 }
 
 function handleSwapClick(teamIdx, playerIdx) {
@@ -455,12 +598,17 @@ function renderFormatPreview() {
     return;
   }
 
-  const fmtText = plan.format === 'groups-knockout'
-    ? t('teams.format.groups_knockout', {
-        groups: plan.group_sizes.join('/'),
-        n: plan.knockout_size,
-      })
-    : t('teams.format.round_robin');
+  let fmtText;
+  if (plan.format === 'groups-knockout') {
+    fmtText = t('teams.format.groups_knockout', {
+      groups: plan.group_sizes.join('/'),
+      n: plan.knockout_size,
+    });
+  } else if (plan.format === 'random-fair') {
+    fmtText = t('teams.format.random_fair');
+  } else {
+    fmtText = t('teams.format.round_robin');
+  }
 
   const d = parseInt(document.getElementById('match-duration').value, 10) || 15;
   const totalMin = plan.slotsUsed * d;
@@ -548,6 +696,7 @@ function phaseDisplay(phase) {
     'group': 'tour.phase.group',
     'knockout': 'tour.phase.knockout',
     'round-robin': 'tour.phase.round_robin',
+    'random-fair': 'tour.phase.random_fair',
   };
   return t(map[phase] || phase);
 }
@@ -664,8 +813,38 @@ function generateTeams() {
   ui.spectators = result.spectators || [];
   ui.swapMode = false;
   ui.swapSelection = null;
+  ui.fallbackMode = false;
 
   planPendingTournament();
+
+  // If neither cup format fits, fall back to random-fair scheduling.
+  // The fallback DISCARDS the fixed weekly teams and generates per-match
+  // teams instead — see scheduler.js:planRandomFairFallback for the
+  // rationale (snake-drafting similar-skill cohorts).
+  if (ui.pendingPlan && !ui.pendingPlan.fits) {
+    const numCourts = parseInt(document.getElementById('num-courts').value, 10) || 2;
+    const matchDuration = parseInt(document.getElementById('match-duration').value, 10) || 15;
+    const totalTime = parseInt(document.getElementById('total-time').value, 10) || 180;
+    const teamsPerMatch = 2;  // currently fixed; could be exposed in setup later
+
+    const fallback = planRandomFairFallback({
+      attendeeIds, playersMap, teamSize, teamsPerMatch,
+      numCourts, matchDuration, totalTime,
+    });
+
+    if (fallback.fits) {
+      ui.fallbackMode = true;
+      ui.pendingPlan = fallback;
+      // The fallback's `teams` field replaces the cup teams. Localize names.
+      fallback.teams.forEach((team, i) => {
+        team.name = t('team.default.name', { n: i + 1 });
+      });
+      ui.pendingTeams = fallback.teams;
+    }
+    // If the fallback also doesn't fit, leave the original infeasible
+    // plan in place so the format-preview banner explains why.
+  }
+
   showView('teams');
 }
 
@@ -763,7 +942,39 @@ function resolveTeamForSummary(ref, ev) {
   return Storage._helpers.resolvePlaceholder(ref, ev);
 }
 
-/* ─── Expense Reset / Undo ──────────────────────────────────── */
+/* ─── Expense copy / reset / undo ──────────────────────────── */
+function buildExpenseText() {
+  const players = Storage.getAllPlayers()
+    .filter(p => (p.totalSpent || 0) > 0)
+    .sort((a, b) => (b.totalSpent || 0) - (a.totalSpent || 0)
+                 || a.name.localeCompare(b.name));
+  const total = Storage.getTotalSpent();
+  const lines = [];
+  lines.push(t('expense.text.header'));
+  lines.push(t('expense.text.total', { total: fmtMoney(total) }));
+  if (players.length > 0) {
+    lines.push('');
+    players.forEach(p => {
+      lines.push(t('expense.text.row', {
+        name: p.name,
+        amount: fmtMoney(p.totalSpent || 0),
+      }));
+    });
+  }
+  return lines.join('\n');
+}
+
+async function handleCopyExpenses() {
+  const total = Storage.getTotalSpent();
+  if (total === 0) {
+    alert(t('expense.alert.already_zero'));
+    return;
+  }
+  const text = buildExpenseText();
+  const ok = await copyText(text);
+  alert(ok ? t('copy.success') : t('copy.failure'));
+}
+
 function handleResetExpenses() {
   const total = Storage.getTotalSpent();
   if (total === 0 && !Storage.hasExpenseBackup()) {
@@ -997,7 +1208,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Home
   document.getElementById('btn-start-event').onclick = startNewEvent;
   document.getElementById('btn-goto-db').onclick = () => showView('db');
-  document.getElementById('btn-goto-history').onclick = () => showView('history');
   document.getElementById('btn-resume-event').onclick = () => showView('tournament');
 
   // Leaderboard tabs
@@ -1028,6 +1238,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('new-player-name').addEventListener('keypress', e => {
     if (e.key === 'Enter') document.getElementById('btn-add-player').click();
   });
+
+  // DB bulk select
+  document.getElementById('btn-select-mode').onclick = toggleDbSelectMode;
+  document.getElementById('db-select-all-cb').onclick = (e) => handleDbSelectAll(e.target.checked);
+  document.getElementById('btn-delete-selected').onclick = handleDeleteSelected;
 
   // Setup
   document.getElementById('btn-form-teams').onclick = generateTeams;
@@ -1060,7 +1275,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-finish-tournament').onclick = finishTournament;
   document.getElementById('btn-copy-schedule-tour').onclick = handleCopyScheduleFromTournament;
 
-  // Expense reset / undo
+  // Expense copy / reset / undo
+  document.getElementById('btn-copy-expenses').onclick = handleCopyExpenses;
   document.getElementById('btn-reset-expenses').onclick = handleResetExpenses;
   document.getElementById('btn-undo-expenses').onclick = handleUndoExpenses;
 

@@ -144,7 +144,7 @@ function planGroupsKnockout(teams, numCourts, matchDuration, totalTime) {
     while (kn * 2 <= totalAdvancing) kn *= 2;
     if (kn < 2) continue;
 
-    const plan = buildGroupsKnockout(teams, groupSizes, kn, numCourts, matchDuration, totalTime);
+    const plan = buildGroupsKnockout(groupSizes, kn, numCourts, matchDuration, totalTime);
     if (plan.fits) {
       if (!best || plan.slotsUsed < best.slotsUsed) best = plan;
     }
@@ -153,7 +153,7 @@ function planGroupsKnockout(teams, numCourts, matchDuration, totalTime) {
   return best || { fits: false, reason: '时间不足以完成小组赛+淘汰赛' };
 }
 
-function buildGroupsKnockout(teams, groupSizes, knSize, numCourts, matchDuration, totalTime) {
+function buildGroupsKnockout(groupSizes, knSize, numCourts, matchDuration, totalTime) {
   const maxSlots = Math.floor(totalTime / matchDuration);
 
   // Assign team indices to groups sequentially (top teams get distributed later; for now seq)
@@ -267,4 +267,170 @@ function recommendFormat(teams, numCourts, matchDuration, totalTime) {
   }
 
   return planRoundRobin(teams, numCourts, matchDuration, totalTime);
+}
+
+/* ─── Random-fair fallback ──────────────────────────────────── */
+/**
+ * Used when neither groups+knockout nor round-robin fit in the time budget.
+ * Discards the fixed weekly teams and instead schedules per-match teams,
+ * prioritising fairness within each match (强强 vs 强强 / 弱弱 vs 弱弱 /
+ * 强弱 vs 强弱) and equal participation across players.
+ *
+ * Strategy per slot per court:
+ *   1. From players not yet used this slot, sort by (gameCount asc,
+ *      winRate desc) so that we both equalise play counts AND cluster
+ *      similar-skill players together.
+ *   2. Take the first `playersPerMatch` of that order — these become
+ *      the four-ish players who play this match. Because of the WR
+ *      tie-break, when many players are tied on play count they tend
+ *      to be selected as a similar-skill cohort.
+ *   3. Within the cohort, snake-draft by win rate into `teamsPerMatch`
+ *      teams. Snake draft balances the two teams so the match is fair
+ *      internally.
+ *
+ * Returns the same shape as planRoundRobin/planGroupsKnockout, plus a
+ * `teams` array containing all the per-match teams generated. Match
+ * `team_a` / `team_b` reference these teams by numeric index.
+ */
+function planRandomFairFallback({
+  attendeeIds, playersMap, teamSize, teamsPerMatch,
+  numCourts, matchDuration, totalTime,
+}) {
+  const playersPerMatch = teamSize * teamsPerMatch;
+  const maxSlots = Math.floor(totalTime / matchDuration);
+  const n = attendeeIds.length;
+
+  if (maxSlots <= 0) {
+    return { fits: false, reason: '时间不足', format: 'random-fair' };
+  }
+  if (n < playersPerMatch) {
+    return {
+      fits: false,
+      reason: `至少需要 ${playersPerMatch} 人，当前 ${n} 人`,
+      format: 'random-fair',
+    };
+  }
+
+  const courtsPerSlot = Math.min(numCourts, Math.floor(n / playersPerMatch));
+  if (courtsPerSlot <= 0) {
+    return { fits: false, reason: '人数不足以填满一个场地', format: 'random-fair' };
+  }
+
+  const wr = (id) => playerWinRate(playersMap[id]);
+
+  // Per-player game count for this event
+  const gameCount = {};
+  attendeeIds.forEach(id => { gameCount[id] = 0; });
+
+  const teams = [];      // global team list (one entry per generated match-side)
+  const schedule = [];
+
+  let teamCounter = 0;
+
+  for (let slotIdx = 0; slotIdx < maxSlots; slotIdx++) {
+    const usedThisSlot = new Set();
+    const slotMatches = [];
+
+    for (let courtIdx = 0; courtIdx < courtsPerSlot; courtIdx++) {
+      const available = attendeeIds.filter(id => !usedThisSlot.has(id));
+      if (available.length < playersPerMatch) break;
+
+      // Sort by play count asc, win rate desc, jitter to break ties
+      available.sort((a, b) => {
+        const gd = gameCount[a] - gameCount[b];
+        if (gd !== 0) return gd;
+        const wd = wr(b) - wr(a);
+        if (wd !== 0) return wd;
+        return Math.random() - 0.5;
+      });
+
+      const cohort = available.slice(0, playersPerMatch);
+
+      // Within the cohort, sort strictly by win rate desc and snake-draft.
+      cohort.sort((a, b) => wr(b) - wr(a));
+
+      // Snake draft into teamsPerMatch teams
+      const teamPlayers = Array.from({ length: teamsPerMatch }, () => []);
+      cohort.forEach((pid, i) => {
+        const round = Math.floor(i / teamsPerMatch);
+        const pos = i % teamsPerMatch;
+        const teamIdx = round % 2 === 0 ? pos : (teamsPerMatch - 1 - pos);
+        teamPlayers[teamIdx].push(pid);
+      });
+
+      // Materialise teams as global team objects and remember their indices
+      const teamIndices = teamPlayers.map(players => {
+        const idx = teams.length;
+        teams.push({
+          id: `t_${teamCounter++}`,
+          name: `Team ${idx + 1}`,
+          players,
+        });
+        return idx;
+      });
+
+      // For teamsPerMatch === 2 we have a single ranked match between
+      // teamIndices[0] and teamIndices[1]. For teamsPerMatch > 2 we still
+      // emit a single "match" record with the two teams in a multi-team
+      // contest — keeping the schema consistent with the cup planners,
+      // which represent each court as a single match between team_a/team_b.
+      // (For now teamsPerMatch is effectively 2 in the current UI.)
+      slotMatches.push({
+        court: courtIdx + 1,
+        team_a: teamIndices[0],
+        team_b: teamIndices[1] !== undefined ? teamIndices[1] : teamIndices[0],
+        kind: 'ranked',
+      });
+
+      // Bump usage
+      cohort.forEach(pid => {
+        usedThisSlot.add(pid);
+        gameCount[pid] += 1;
+      });
+    }
+
+    if (slotMatches.length > 0) {
+      schedule.push({
+        phase: 'random-fair',
+        round: slotIdx + 1,
+        slot: slotIdx + 1,
+        matches: slotMatches,
+      });
+    }
+  }
+
+  if (schedule.length === 0) {
+    return { fits: false, reason: '人数不足以填满一个场地', format: 'random-fair' };
+  }
+
+  return {
+    format: 'random-fair',
+    schedule,
+    teams,
+    fits: true,
+    slotsUsed: schedule.length,
+  };
+}
+
+/**
+ * Wraps recommendFormat: try the cup formats first, then fall back to
+ * the random-fair scheduler if neither fit. Used by the UI's
+ * generateTeams() flow so the user always gets *some* schedule.
+ */
+function recommendFormatOrFallback({
+  teams, attendeeIds, playersMap, teamSize, teamsPerMatch,
+  numCourts, matchDuration, totalTime,
+}) {
+  const cupPlan = recommendFormat(teams, numCourts, matchDuration, totalTime);
+  if (cupPlan.fits) return { plan: cupPlan, fallback: false };
+
+  const fallback = planRandomFairFallback({
+    attendeeIds, playersMap, teamSize, teamsPerMatch,
+    numCourts, matchDuration, totalTime,
+  });
+  if (fallback.fits) {
+    return { plan: fallback, fallback: true, cupReason: cupPlan.reason };
+  }
+  // Even the fallback failed — surface the original cup plan's error
+  return { plan: cupPlan, fallback: false };
 }

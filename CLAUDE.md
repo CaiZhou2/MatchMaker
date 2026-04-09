@@ -70,8 +70,14 @@ MatchMaker is a mobile-friendly weekly tournament scheduling app. It tracks a ro
 ## Running Tests
 ```bash
 # JS unit tests (harness loads web modules into a vm.Context)
-node --test tests/
+node --test tests/*.test.js
+# Or, from project root, let Node auto-discover test files:
+node --test
 
 # Python algorithm tests
 python3 tests/test_scheduler.py
 ```
+
+**Note**: `node --test tests/` (with a directory path) does NOT work on
+Node 24 — it tries to load `tests` as a single module file. Use the glob
+form or the no-arg discovery form above.

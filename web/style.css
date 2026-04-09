@@ -249,7 +249,7 @@ input:focus, textarea:focus {
 /* ─── Home stats ────────────────────────────────────────────────── */
 .home-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
   margin-bottom: 14px;
 }
@@ -297,12 +297,55 @@ input:focus, textarea:focus {
   margin-left: 8px;
 }
 
+/* ─── DB select bar ─────────────────────────────────────────────── */
+.db-select-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.db-select-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.db-select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.db-select-all input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.btn-danger {
+  background: var(--danger);
+}
+
+.db-row-cb {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
 /* ─── DB player list ────────────────────────────────────────────── */
 .db-row {
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   margin-bottom: 6px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.db-row.selected {
+  background: var(--primary-light);
+  border-color: var(--primary);
 }
 .db-main {
   display: flex;
@@ -400,6 +443,48 @@ input:focus, textarea:focus {
   margin-left: 4px;
 }
 .team-player.selected .mini-pts { color: rgba(255,255,255,0.8); }
+
+/* ─── Fallback (random-fair) preview ───────────────────────────── */
+.fallback-slot {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.fallback-slot-head {
+  background: #fff8e1;
+  padding: 6px 10px;
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--warning);
+}
+.fallback-match {
+  padding: 8px 10px;
+  border-top: 1px solid #f0f2f5;
+}
+.fallback-court {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.fallback-vs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+.fallback-side {
+  flex: 1;
+  background: #f7f9fc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  text-align: center;
+  font-weight: 500;
+}
 
 /* ─── Format preview ────────────────────────────────────────────── */
 .preview-title {

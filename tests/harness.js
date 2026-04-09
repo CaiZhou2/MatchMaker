@@ -100,6 +100,8 @@ function createHarness(opts = {}) {
     get recommendFormat() { return ctx.recommendFormat; },
     get planRoundRobin() { return ctx.planRoundRobin; },
     get planGroupsKnockout() { return ctx.planGroupsKnockout; },
+    get planRandomFairFallback() { return ctx.planRandomFairFallback; },
+    get recommendFormatOrFallback() { return ctx.recommendFormatOrFallback; },
     get playerWinRate() { return ctx.playerWinRate; },
     // Run arbitrary code in the sandbox (useful for smoke tests)
     run(code) { return vm.runInContext(code, ctx); },
