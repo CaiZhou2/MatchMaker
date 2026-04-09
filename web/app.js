@@ -533,11 +533,12 @@ function renderHistoryDetail(h) {
     </div>
   `).join('');
 
-  // Match results
+  // Match results — include both ranked and friendly playable matches
+  // (skip only the eliminated-team free-court placeholders).
   const matches = [];
   (h.plan?.schedule || []).forEach((slot, slotIdx) => {
     slot.matches.forEach(m => {
-      if (m.kind !== 'ranked') return;
+      if (m.team_a == null || m.team_b == null) return;
       const key = `${slotIdx}:${m.court}`;
       const entry = h.results?.[key];
       const result = Storage._helpers.getMatchResult(entry);
@@ -1255,20 +1256,65 @@ function showBackupNotice(success) {
 }
 
 function buildEventSummary(ev) {
-  // Friendly events don't accumulate any deltas (commitEvent's
-  // accumulator skips kind!='ranked'), so the per-player points-earned
-  // breakdown would be entirely zero. Show a friendly-mode summary
-  // instead — counts of who attended and how many friendly matches
-  // were played.
   const isFriendly = ev.plan && ev.plan.format === 'friendly';
+
+  // Walk match results and accumulate per-player deltas. Friendly
+  // matches contribute W/D/L (so the win rate updates) but NOT
+  // points. Free-court placeholder rows (no team refs) are skipped.
+  const earned = {};
+  ev.attendees.forEach(pid => {
+    earned[pid] = { points: 0, w: 0, d: 0, l: 0 };
+  });
+
+  Object.entries(ev.results || {}).forEach(([key, entry]) => {
+    const match = findMatch(ev, key);
+    if (!match) return;
+    if (match.team_a == null || match.team_b == null) return;
+    const ta = resolveTeamForSummary(match.team_a, ev);
+    const tb = resolveTeamForSummary(match.team_b, ev);
+    if (!ta || !tb) return;
+    const result = Storage._helpers.getMatchResult(entry);
+    if (!result) return;
+    const countPoints = (match.kind === 'ranked');
+    if (result === 'A') {
+      ta.players.forEach(pid => {
+        if (!earned[pid]) return;
+        if (countPoints) earned[pid].points += 3;
+        earned[pid].w++;
+      });
+      tb.players.forEach(pid => { if (earned[pid]) earned[pid].l++; });
+    } else if (result === 'B') {
+      tb.players.forEach(pid => {
+        if (!earned[pid]) return;
+        if (countPoints) earned[pid].points += 3;
+        earned[pid].w++;
+      });
+      ta.players.forEach(pid => { if (earned[pid]) earned[pid].l++; });
+    } else if (result === 'D') {
+      [...ta.players, ...tb.players].forEach(pid => {
+        if (!earned[pid]) return;
+        if (countPoints) earned[pid].points += 1;
+        earned[pid].d++;
+      });
+    }
+  });
+
+  // For friendly events, sort by wins (then -losses) instead of points,
+  // since points are always 0. Otherwise sort by points like before.
+  const rows = Object.entries(earned)
+    .map(([pid, e]) => ({ player: Storage.getPlayer(pid), e }))
+    .filter(x => x.player)
+    .sort((a, b) => isFriendly
+      ? (b.e.w - a.e.w) || (a.e.l - b.e.l) || a.player.name.localeCompare(b.player.name)
+      : (b.e.points - a.e.points));
+
+  // Friendly mode: show a clarifying note + the W/D/L breakdown,
+  // but NOT the "+N pts" delta (which is always 0).
   if (isFriendly) {
     const matchCount = ev.plan.schedule.reduce(
       (s, slot) => s + slot.matches.filter(isPlayableMatch).length, 0);
     const playedCount = Object.values(ev.results || {})
       .filter(entry => Storage._helpers.getMatchResult(entry) != null).length;
-    const playerNames = ev.attendees
-      .map(pid => Storage.getPlayer(pid)?.name || '?')
-      .sort((a, b) => a.localeCompare(b));
     return `
       <div class="friendly-summary">
         <p>${escapeHtml(t('done.friendly.note'))}</p>
@@ -1277,41 +1323,18 @@ function buildEventSummary(ev) {
           total: matchCount,
           attendees: ev.attendees.length,
         }))}</p>
-        <p class="friendly-attendees">${escapeHtml(playerNames.join(t('text.name.separator')))}</p>
+      </div>
+      <h3>${escapeHtml(t('done.friendly.records'))}</h3>
+      <div class="summary-list">
+        ${rows.map(r => `
+          <div class="summary-row">
+            <span class="sr-name">${escapeHtml(r.player.name)}</span>
+            <span class="sr-wld">${escapeHtml(fmtWLD({ wins: r.e.w, draws: r.e.d, losses: r.e.l }))}</span>
+          </div>
+        `).join('')}
       </div>
     `;
   }
-
-  const earned = {};
-  ev.attendees.forEach(pid => {
-    earned[pid] = { points: 0, w: 0, d: 0, l: 0 };
-  });
-
-  Object.entries(ev.results || {}).forEach(([key, entry]) => {
-    const match = findMatch(ev, key);
-    if (!match || match.kind !== 'ranked') return;
-    const ta = resolveTeamForSummary(match.team_a, ev);
-    const tb = resolveTeamForSummary(match.team_b, ev);
-    if (!ta || !tb) return;
-    const result = Storage._helpers.getMatchResult(entry);
-    if (!result) return;
-    if (result === 'A') {
-      ta.players.forEach(pid => { if (earned[pid]) { earned[pid].points += 3; earned[pid].w++; } });
-      tb.players.forEach(pid => { if (earned[pid]) earned[pid].l++; });
-    } else if (result === 'B') {
-      tb.players.forEach(pid => { if (earned[pid]) { earned[pid].points += 3; earned[pid].w++; } });
-      ta.players.forEach(pid => { if (earned[pid]) earned[pid].l++; });
-    } else if (result === 'D') {
-      [...ta.players, ...tb.players].forEach(pid => {
-        if (earned[pid]) { earned[pid].points += 1; earned[pid].d++; }
-      });
-    }
-  });
-
-  const rows = Object.entries(earned)
-    .map(([pid, e]) => ({ player: Storage.getPlayer(pid), e }))
-    .filter(x => x.player)
-    .sort((a, b) => b.e.points - a.e.points);
 
   return `
     <h3>${escapeHtml(t('done.delta.title'))}</h3>

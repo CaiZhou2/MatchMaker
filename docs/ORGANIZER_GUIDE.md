@@ -78,7 +78,7 @@ You only need to do this once. New players added later just get added on top.
      - **Groups + Knockout** — explicit group stage followed by a knockout bracket. Needs at least 6 teams to form 2 groups.
      - **Round-robin only** — every team plays every other team once.
      - **Single elimination** — straight knockout bracket. **Requires the team count to be a power of 2** (2 / 4 / 8 / 16 / 32). If your numbers don't fit, the app will tell you to switch modes.
-     - **Friendly only (no points)** — no fixed weekly teams. Teams are re-formed every match by win rate so everyone plays balanced matches, but **nothing counts toward the leaderboard**. Good for casual sessions / mixed-skill warm-ups / "we just want to play" days.
+     - **Friendly only (no points)** — no fixed weekly teams. Teams are re-formed every match by win rate so everyone plays balanced matches. **No tournament points are awarded**, so the points leaderboard doesn't move. **But wins / draws / losses ARE recorded**, so the win-rate leaderboard and head-to-head stats still update — friendly matches still affect skill rating, just not standings. Good for casual sessions / mixed-skill warm-ups / "we just want to play" days.
 4. **This week's expense** — the venue cost in your local currency. The app splits it equally across attendees automatically when you finish the event.
 5. Tap **Generate teams**.
 

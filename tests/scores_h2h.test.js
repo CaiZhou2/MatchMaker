@@ -145,8 +145,10 @@ test('storage: commitEvent still accepts legacy string results (backward compat)
  * ────────────────────────────────────────────────────────── */
 
 // Helper: build a one-event history entry where two teams play one match
-// with the given result.
-function pushOneMatchHistory(h, teamA, teamB, result) {
+// with the given result. `kind` defaults to 'ranked'; pass 'friendly'
+// to verify head-to-head still picks it up (friendly matches contribute
+// to W/D/L and therefore to the per-opponent record).
+function pushOneMatchHistory(h, teamA, teamB, result, kind = 'ranked') {
   const d = h.Storage.load();
   const allPlayers = [...teamA, ...teamB];
   const evLike = {
@@ -163,12 +165,12 @@ function pushOneMatchHistory(h, teamA, teamB, result) {
       { id: 'tB', name: 'B', players: teamB },
     ],
     plan: {
-      format: 'round-robin',
+      format: kind === 'friendly' ? 'friendly' : 'round-robin',
       schedule: [{
-        phase: 'round-robin',
+        phase: kind === 'friendly' ? 'friendly' : 'round-robin',
         round: 1,
         slot: 1,
-        matches: [{ court: 1, team_a: 0, team_b: 1, kind: 'ranked' }],
+        matches: [{ court: 1, team_a: 0, team_b: 1, kind }],
       }],
       slotsUsed: 1,
       fits: true,
@@ -303,6 +305,27 @@ test('h2h: returns empty for null/undefined player id', () => {
   // vm context). Just check the key count.
   assert.equal(Object.keys(h.Storage.getHeadToHead(null)).length, 0);
   assert.equal(Object.keys(h.Storage.getHeadToHead(undefined)).length, 0);
+});
+
+test('h2h: friendly matches DO show up (they affect W/D/L the same as ranked)', () => {
+  const h = createHarness();
+  const alice = h.Storage.addPlayer('Alice');
+  const bob = h.Storage.addPlayer('Bob');
+  const cara = h.Storage.addPlayer('Cara');
+  const dan = h.Storage.addPlayer('Dan');
+
+  // Alice + Bob beat Cara + Dan in a friendly match
+  pushOneMatchHistory(
+    h, [alice.id, bob.id], [cara.id, dan.id], 'A', 'friendly'
+  );
+
+  const aliceH2H = h.Storage.getHeadToHead(alice.id);
+  // Friendly matches still contribute to head-to-head — the user
+  // wants friendly results to count toward win rate, and h2h is
+  // just per-opponent win rate.
+  assert.equal(aliceH2H[cara.id]?.wins, 1, 'friendly win shows up in h2h');
+  assert.equal(aliceH2H[cara.id]?.losses, 0);
+  assert.equal(aliceH2H[dan.id]?.wins, 1);
 });
 
 /* ──────────────────────────────────────────────────────────

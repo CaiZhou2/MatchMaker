@@ -260,13 +260,20 @@ const Storage = {
 
     Object.entries(ev.results || {}).forEach(([key, entry]) => {
       const match = findMatchByKey(ev.plan, key);
-      if (!match || match.kind !== 'ranked') return;
+      if (!match) return;
+      // Skip the eliminated-team free-court placeholder rows (no team
+      // refs) — those are display hints, not real matches.
+      if (match.team_a == null || match.team_b == null) return;
       const ta = resolveTeam(match.team_a, ev);
       const tb = resolveTeam(match.team_b, ev);
       if (!ta || !tb) return;
       const result = getMatchResult(entry);
       if (!result) return;
-      accumulateDelta(delta, ta, tb, result);
+      // Friendly matches still update wins/draws/losses (so the
+      // win-rate leaderboard reflects them) but DO NOT award
+      // tournament points. Only ranked matches award points.
+      const countPoints = (match.kind === 'ranked');
+      accumulateDelta(delta, ta, tb, result, countPoints);
     });
 
     // Split the weekly expense equally across attendees
@@ -408,7 +415,11 @@ const Storage = {
 
       h.plan.schedule.forEach((slot, slotIdx) => {
         slot.matches.forEach(m => {
-          if (m.kind !== 'ranked') return;
+          // Include both ranked AND friendly matches in head-to-head:
+          // friendly matches still affect win/draw/loss (and therefore
+          // a player's record against any specific opponent). Skip
+          // only the free-court placeholder rows that have no team refs.
+          if (m.team_a == null || m.team_b == null) return;
           const key = `${slotIdx}:${m.court}`;
           const result = getMatchResult(h.results[key]);
           if (!result) return;
@@ -605,19 +616,32 @@ function findKnockoutWinner(ev, round, matchNum) {
   return null;
 }
 
-function accumulateDelta(delta, teamA, teamB, result) {
+// Walks one match result and adds the per-player W/D/L (and
+// optionally points) deltas to the `delta` map. `countPoints`
+// defaults to true (ranked-match behaviour); set it to false for
+// friendly matches, which contribute to win/draw/loss totals (and
+// therefore to win rate + head-to-head) but never to the points
+// leaderboard.
+function accumulateDelta(delta, teamA, teamB, result, countPoints = true) {
   const bump = (pid, field, amount = 1) => {
     if (delta[pid]) delta[pid][field] += amount;
   };
   if (result === 'A') {
-    teamA.players.forEach(pid => { bump(pid, 'points', 3); bump(pid, 'wins'); });
+    teamA.players.forEach(pid => {
+      if (countPoints) bump(pid, 'points', 3);
+      bump(pid, 'wins');
+    });
     teamB.players.forEach(pid => bump(pid, 'losses'));
   } else if (result === 'B') {
-    teamB.players.forEach(pid => { bump(pid, 'points', 3); bump(pid, 'wins'); });
+    teamB.players.forEach(pid => {
+      if (countPoints) bump(pid, 'points', 3);
+      bump(pid, 'wins');
+    });
     teamA.players.forEach(pid => bump(pid, 'losses'));
   } else if (result === 'D') {
     [...teamA.players, ...teamB.players].forEach(pid => {
-      bump(pid, 'points', 1); bump(pid, 'draws');
+      if (countPoints) bump(pid, 'points', 1);
+      bump(pid, 'draws');
     });
   }
 }

@@ -216,7 +216,10 @@ test('friendly: phase tag on slots is "friendly"', () => {
   });
 });
 
-test('friendly: commitEvent applies NO points for friendly matches', () => {
+test('friendly: commitEvent applies W/D/L but NOT points', () => {
+  // Friendly events don't award tournament points (so the points
+  // leaderboard doesn't move), but they DO update each player's
+  // wins/draws/losses so the win-rate leaderboard reflects them.
   const h = createHarness();
   const { ids } = buildPlayers(h, 4);
 
@@ -240,6 +243,10 @@ test('friendly: commitEvent applies NO points for friendly matches', () => {
   });
   assert.equal(plan.fits, true);
 
+  // Find which players ended up on team A (the winning side) and B (losing).
+  const teamA = plan.teams[0];
+  const teamB = plan.teams[1];
+
   const ev = {
     date: '2026-04-09',
     teamSize: 2, numCourts: 1, matchDuration: 10, totalTime: 10,
@@ -253,15 +260,72 @@ test('friendly: commitEvent applies NO points for friendly matches', () => {
   h.Storage.setCurrentEvent(ev);
   h.Storage.commitEvent();
 
-  // Every player's points/wins/losses should still be zero after the
-  // friendly event commits. (events count IS bumped because they did
-  // attend.)
+  // Points: NEVER awarded for friendly. Everyone stays at 0.
   ids.forEach(id => {
     const p = h.Storage.getPlayer(id);
     assert.equal(p.points, 0, `${p.name} should have 0 points after friendly`);
+    assert.equal(p.events, 1, 'attendance still counts');
+  });
+
+  // Wins / losses ARE applied (so the win-rate leaderboard updates).
+  // Team A players got +1 win, team B players got +1 loss.
+  teamA.players.forEach(pid => {
+    const p = h.Storage.getPlayer(pid);
+    assert.equal(p.wins, 1, `${p.name} (winning side) should have 1 win`);
+    assert.equal(p.losses, 0);
+  });
+  teamB.players.forEach(pid => {
+    const p = h.Storage.getPlayer(pid);
+    assert.equal(p.wins, 0);
+    assert.equal(p.losses, 1, `${p.name} (losing side) should have 1 loss`);
+  });
+
+  // Win rate should be 1.0 for the winners and 0.0 for the losers
+  // (since they only played one game and it was friendly).
+  teamA.players.forEach(pid => {
+    assert.equal(h.Storage.getWinRate(h.Storage.getPlayer(pid)), 1);
+  });
+  teamB.players.forEach(pid => {
+    assert.equal(h.Storage.getWinRate(h.Storage.getPlayer(pid)), 0);
+  });
+});
+
+test('friendly: draw result counts as a draw for both teams', () => {
+  const h = createHarness();
+  const { ids } = buildPlayers(h, 4);
+  ids.forEach(id => {
+    const p = h.Storage.getPlayer(id);
+    p.wins = 0; p.losses = 0; p.points = 0; p.draws = 0;
+  });
+  h.Storage.save();
+
+  const playersMap = {};
+  ids.forEach(id => { playersMap[id] = h.Storage.getPlayer(id); });
+  const plan = h.planFriendly({
+    attendeeIds: ids, playersMap,
+    teamSize: 2, teamsPerMatch: 2,
+    numCourts: 1, matchDuration: 10, totalTime: 10,
+  });
+
+  const ev = {
+    date: '2026-04-09',
+    teamSize: 2, numCourts: 1, matchDuration: 10, totalTime: 10,
+    expense: 0,
+    attendees: ids,
+    teams: plan.teams,
+    plan,
+    results: { '0:1': { result: 'D', scoreA: 21, scoreB: 21 } },
+    phase: 'running',
+  };
+  h.Storage.setCurrentEvent(ev);
+  h.Storage.commitEvent();
+
+  ids.forEach(id => {
+    const p = h.Storage.getPlayer(id);
+    assert.equal(p.points, 0, 'no points for friendly draw');
+    assert.equal(p.draws, 1, 'all 4 players got a draw');
     assert.equal(p.wins, 0);
     assert.equal(p.losses, 0);
-    assert.equal(p.events, 1, 'attendance still counts');
   });
 });
 

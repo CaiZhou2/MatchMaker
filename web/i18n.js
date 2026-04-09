@@ -172,8 +172,8 @@ const TRANSLATIONS = {
     'teams.format.stats': '{ranked} 场正赛 · {slots} 个时间段 · 约 {min} 分钟',
     'teams.format.stats_friendly': '{friendly} 场友谊赛 · {slots} 个时间段 · 约 {min} 分钟',
     'teams.format.infeasible': '⚠️ 方案不可行：{reason}',
-    'teams.notice.auto_fallback': '⚠️ 时间不足以完成完整杯赛，自动模式已切换为随机配对（按胜率分组保证比赛公平）。每场比赛的队伍都会重新组合，比赛结果不计入积分。',
-    'teams.notice.friendly_explicit': '🤝 纯友谊赛模式：所有比赛不计积分。每场比赛会按胜率重新组队保证公平，所有人都会轮流上场。点击"重新随机"可以换一批配对。',
+    'teams.notice.auto_fallback': '⚠️ 时间不足以完成完整杯赛，自动模式已切换为随机配对（按胜率分组保证比赛公平）。每场比赛的队伍都会重新组合，比赛结果不计入积分，但胜率会更新。',
+    'teams.notice.friendly_explicit': '🤝 纯友谊赛模式：比赛不计入积分，但胜率会更新。每场比赛会按胜率重新组队保证公平，所有人都会轮流上场。点击"重新随机"可以换一批配对。',
 
     // ─── Tournament view ─────────────────────────────────────
     'tour.title': '比赛进行中',
@@ -203,8 +203,9 @@ const TRANSLATIONS = {
     'done.btn.home': '返回主页',
     'done.delta.title': '本轮积分变化',
     'done.delta.row': '+{pts} 分',
-    'done.friendly.note': '🤝 本场是纯友谊赛 —— 不计积分，不影响任何选手的胜率或排名。',
+    'done.friendly.note': '🤝 本场是友谊赛 —— 不计积分，但胜率（胜/平/负）已更新。',
     'done.friendly.stats': '完成 {played}/{total} 场友谊赛 · 共 {attendees} 人参与',
+    'done.friendly.records': '本轮战绩',
 
     // ─── Backup (post-event auto-download + share) ──────────
     'backup.notice.success': '备份已自动下载到本机。强烈建议把它发到微信"文件传输助手"作为云备份，防止换手机或浏览器清理时数据丢失。',
@@ -422,8 +423,8 @@ const TRANSLATIONS = {
     'teams.format.stats': '{ranked} ranked matches · {slots} slots · ~{min} min',
     'teams.format.stats_friendly': '{friendly} friendly matches · {slots} slots · ~{min} min',
     'teams.format.infeasible': '⚠️ Plan not feasible: {reason}',
-    'teams.notice.auto_fallback': '⚠️ Not enough time for a full cup. Auto mode switched to random pairing (cohorts grouped by win rate to keep matches fair). Teams change every match and results don\'t count toward the leaderboard.',
-    'teams.notice.friendly_explicit': '🤝 Friendly mode: matches are not scored against the leaderboard. Teams are re-formed each match by win rate so everyone gets balanced playing time. Tap "Re-randomize" for a different set of pairings.',
+    'teams.notice.auto_fallback': '⚠️ Not enough time for a full cup. Auto mode switched to random pairing (cohorts grouped by win rate to keep matches fair). Teams change every match — results don\'t award tournament points but win rate IS updated.',
+    'teams.notice.friendly_explicit': '🤝 Friendly mode: matches don\'t award tournament points, but win rate IS updated. Teams are re-formed each match by win rate so everyone gets balanced playing time. Tap "Re-randomize" for a different set of pairings.',
 
     // ─── Tournament view ─────────────────────────────────────
     'tour.title': 'Tournament in progress',
@@ -453,8 +454,9 @@ const TRANSLATIONS = {
     'done.btn.home': 'Back to home',
     'done.delta.title': 'Points earned',
     'done.delta.row': '+{pts} pts',
-    'done.friendly.note': '🤝 This was a friendly event — no points awarded, no win-rate impact, no leaderboard movement.',
+    'done.friendly.note': '🤝 This was a friendly event — no points awarded, but win rate (wins / draws / losses) IS updated.',
     'done.friendly.stats': '{played}/{total} friendly matches played · {attendees} attendees',
+    'done.friendly.records': 'Records this round',
 
     // ─── Backup (post-event auto-download + share) ──────────
     'backup.notice.success': 'Backup downloaded automatically. We strongly recommend sending it to yourself (WeChat / email / cloud) so you don\'t lose your data if you switch phones or your browser clears its storage.',
