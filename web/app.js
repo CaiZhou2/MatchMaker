@@ -1113,10 +1113,43 @@ function finishTournament() {
     const summary = buildEventSummary(ev);
     Storage.commitEvent();
     document.getElementById('done-summary').innerHTML = summary;
+
+    // Auto-backup: download the new state immediately so the organizer
+    // doesn't have to remember to do it manually. The backup notice on
+    // the Done view tells them what just happened (success → green
+    // notice; failure → orange "please export manually" notice).
+    const ok = triggerBackupDownload();
+    showBackupNotice(ok);
+
+    // Show the "📤 分享备份" button only if the browser supports
+    // sharing files (Android Chrome, iOS Safari ≥ 15-ish). On
+    // unsupported browsers we hide it instead of showing a non-working
+    // button.
+    const shareBtn = document.getElementById('btn-share-backup');
+    const canShareFiles =
+      navigator.share &&
+      navigator.canShare &&
+      navigator.canShare({
+        files: [new File(['x'], 'x.json', { type: 'application/json' })],
+      });
+    shareBtn.classList.toggle('hidden', !canShareFiles);
+
     showView('done');
   } catch (e) {
     console.error('Finish tournament failed:', e);
     alert(t('tour.error.finish', { msg: e.message || String(e) }));
+  }
+}
+
+function showBackupNotice(success) {
+  const el = document.getElementById('backup-notice');
+  const txt = document.getElementById('backup-notice-text');
+  el.classList.remove('hidden', 'failed');
+  if (success) {
+    txt.textContent = t('backup.notice.success');
+  } else {
+    el.classList.add('failed');
+    txt.textContent = t('backup.notice.failed');
   }
 }
 
@@ -1380,18 +1413,69 @@ async function handleCopyScheduleFromTournament() {
 }
 
 /* ─── Import / Export ───────────────────────────────────────── */
+
+// Builds the standard backup filename ("matchmaker-backup-2026-04-09.json")
+// and triggers a browser download. Returns true on success, false on
+// failure (so callers can decide whether to surface a notice). Used by
+// the manual "📤 导出 JSON" button AND by the post-event auto-backup.
+function triggerBackupDownload() {
+  try {
+    const json = Storage.exportJSON();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `matchmaker-backup-${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    return true;
+  } catch (e) {
+    console.error('Backup download failed:', e);
+    return false;
+  }
+}
+
+// Web Share API: opens the system share sheet (微信 / Telegram /
+// AirDrop / email / ...) directly with the backup as a file
+// attachment. Falls back to triggerBackupDownload() if file sharing
+// isn't supported (some Android browsers, all desktop browsers).
+async function shareBackup() {
+  try {
+    const json = Storage.exportJSON();
+    const date = new Date().toISOString().slice(0, 10);
+    const filename = `matchmaker-backup-${date}.json`;
+    const blob = new Blob([json], { type: 'application/json' });
+    const file = new File([blob], filename, { type: 'application/json' });
+
+    // Prefer files (share sheet → 微信 sends as attachment).
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: 'MatchMaker backup',
+        text: filename,
+      });
+      return true;
+    }
+
+    // No file-share support — fall back to a regular download. The user
+    // can then attach the file from their Downloads folder.
+    triggerBackupDownload();
+    alert(t('backup.share.fallback'));
+    return false;
+  } catch (e) {
+    // AbortError == user dismissed the share sheet — silent
+    if (e && e.name === 'AbortError') return false;
+    console.error('Share failed:', e);
+    alert(t('backup.share.failed', { msg: e.message || String(e) }));
+    return false;
+  }
+}
+
 function handleExport() {
-  const json = Storage.exportJSON();
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const date = new Date().toISOString().slice(0, 10);
-  a.href = url;
-  a.download = `matchmaker-${date}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  triggerBackupDownload();
 }
 
 function handleImport(e) {
@@ -1538,6 +1622,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Done
   document.getElementById('btn-done-home').onclick = () => showView('home');
+  document.getElementById('btn-share-backup').onclick = shareBackup;
 
   // Back buttons
   document.querySelectorAll('.btn-back').forEach(btn => {

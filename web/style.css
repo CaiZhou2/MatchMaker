@@ -965,6 +965,35 @@ input:focus, textarea:focus, select:focus {
   margin: 14px 0 6px;
 }
 
+/* ─── Backup notice (done view) ────────────────────────────────── */
+.backup-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+  background: var(--success-bg);
+  border: 1px solid var(--success);
+  border-radius: 8px;
+  color: var(--success);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.backup-notice.hidden { display: none; }
+.backup-notice.failed {
+  background: var(--warning-bg);
+  border-color: var(--warning);
+  color: var(--warning);
+}
+.backup-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+.backup-text {
+  flex: 1;
+  line-height: 1.4;
+}
+
 /* ─── Search results ───────────────────────────────────────────── */
 .search-row {
   display: grid;

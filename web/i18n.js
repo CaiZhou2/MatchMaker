@@ -183,6 +183,13 @@ const TRANSLATIONS = {
     'done.delta.title': '本轮积分变化',
     'done.delta.row': '+{pts} 分',
 
+    // ─── Backup (post-event auto-download + share) ──────────
+    'backup.notice.success': '备份已自动下载到本机。强烈建议把它发到微信"文件传输助手"作为云备份，防止换手机或浏览器清理时数据丢失。',
+    'backup.notice.failed': '⚠️ 自动备份失败！请手动从"选手数据库 → 导出 JSON"导出一份。',
+    'backup.share': '📤 分享备份到微信 / 邮件',
+    'backup.share.fallback': '当前浏览器不支持文件分享，已改为下载到本机。请从下载文件夹手动分享。',
+    'backup.share.failed': '分享失败：{msg}',
+
     // ─── History view ────────────────────────────────────────
     'hist.title': '历史记录',
     'hist.empty': '尚无历史记录。完成一场比赛后这里会出现。',
@@ -402,6 +409,13 @@ const TRANSLATIONS = {
     'done.btn.home': 'Back to home',
     'done.delta.title': 'Points earned',
     'done.delta.row': '+{pts} pts',
+
+    // ─── Backup (post-event auto-download + share) ──────────
+    'backup.notice.success': 'Backup downloaded automatically. We strongly recommend sending it to yourself (WeChat / email / cloud) so you don\'t lose your data if you switch phones or your browser clears its storage.',
+    'backup.notice.failed': '⚠️ Auto-backup failed! Please export manually via "Player Database → Export JSON".',
+    'backup.share': '📤 Share backup to chat / email',
+    'backup.share.fallback': 'This browser doesn\'t support file sharing — backup was downloaded instead. Share it manually from your Downloads folder.',
+    'backup.share.failed': 'Share failed: {msg}',
 
     // ─── History view ────────────────────────────────────────
     'hist.title': 'History',
