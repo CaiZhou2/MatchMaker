@@ -26,7 +26,24 @@ MatchMaker/
 
 ## Data model
 
-Schema in `localStorage` under key `matchmaker-data-v1`:
+### Multi-project registry
+
+The app manages multiple independent projects. A project registry
+in `localStorage` under key `matchmaker-projects` stores:
+
+```jsonc
+[
+  {
+    "id": "proj_1712345678_a1b2",
+    "name": "Saturday League",
+    "createdAt": "2026-04-10T08:00:00.000Z",
+    "updatedAt": "2026-04-10T10:30:00.000Z"
+  }
+]
+```
+
+Each project's data lives under its own key
+`matchmaker-data-v1-{projectId}` and has the identical shape:
 
 ```jsonc
 {
@@ -45,7 +62,17 @@ Schema in `localStorage` under key `matchmaker-data-v1`:
 }
 ```
 
-Forward migrations live in `Storage._migrate()` — always additive so older saves upgrade on read. The same data is mirrored into IndexedDB as a shadow backup so iOS Safari's ITP `localStorage` cleanup doesn't wipe everything when a user skips a week.
+`Storage.bindProject(id)` switches which key it reads/writes.
+All existing methods (`getAllPlayers`, `commitEvent`, etc.) work
+unchanged — they go through `load()` / `save()` which use the
+dynamic key.
+
+**Migration**: existing users upgrading from single-project to
+multi-project are migrated automatically by `migrateToMultiProject()`.
+The legacy `matchmaker-data-v1` key is copied into a new default
+project; the original key is preserved as a rollback safety net.
+
+Forward migrations live in `Storage._migrate()` — always additive so older saves upgrade on read. The same data is mirrored into IndexedDB as a shadow backup so iOS Safari's ITP `localStorage` cleanup doesn't wipe everything when a user skips a week. The IDB layer is key-aware: project registry and per-project data each get their own IDB key.
 
 ### Event shape
 
@@ -343,3 +370,31 @@ any other format. There is no record-only-specific commit logic —
 the per-match `kind` flag is the only thing that distinguishes a
 ranked record-only match from a friendly one, and that flag is
 already understood by `accumulateDelta`.
+
+### Match prediction (`computePrediction`)
+
+The home page includes a prediction tool that estimates win/draw/loss
+probabilities for two hypothetical teams. The algorithm uses a
+two-layer model with linear blending:
+
+1. **Head-to-head layer**: for every cross-team player pair
+   `(a_i, b_j)`, tally wins/draws/losses from `getHeadToHead`.
+   If there are >= 5 H2H games across all pairs, predict directly
+   from those ratios (method = `'h2h'`).
+
+2. **Win-rate layer**: compute each team's average win rate. Use
+   a Bradley-Terry-like model: `P(A) = remaining × wrA / (wrA + wrB)`
+   where `remaining = 1 - avgDrawRate`. This layer activates only
+   when every player has at least 3 individual games on record.
+
+3. **Blending**: when H2H data exists but is sparse (1-4 games),
+   linearly interpolate between the H2H and WR predictions with
+   weight `w = h2hGames / 5` (method = `'blended'`).
+
+4. **Insufficient**: if all win rates are indeterminate (every
+   player has < 3 games) and no H2H data exists, return
+   `method: 'insufficient'`.
+
+The prediction is computed live on every chip toggle — no caching
+or persistence. It's a lightweight read-only walk of the history
+archive via `getHeadToHead` plus a handful of arithmetic operations.

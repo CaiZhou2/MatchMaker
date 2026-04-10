@@ -31,14 +31,49 @@
       </div>
       <h1 data-i18n="app.header">🏆 MatchMaker</h1>
       <p class="subtitle" data-i18n="app.subtitle"></p>
+      <div id="header-project-name" class="header-project-name hidden"></div>
     </header>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- VIEW: PROJECTS (top-level project list)              -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="view" id="view-projects">
+      <div class="card">
+        <h2 data-i18n="projects.title"></h2>
+        <div class="hint" data-i18n="projects.subtitle"></div>
+
+        <button class="btn-primary" id="btn-create-project" data-i18n="projects.btn.create"></button>
+
+        <div class="sort-bar" id="projects-sort-bar">
+          <span class="sort-label" data-i18n="projects.sort.label"></span>
+          <button class="sort-btn active" data-sort-projects="updatedAt" data-i18n="projects.sort.recent"></button>
+          <button class="sort-btn" data-sort-projects="name" data-i18n="projects.sort.name"></button>
+          <button class="sort-btn" data-sort-projects="playerCount" data-i18n="projects.sort.players"></button>
+        </div>
+
+        <div id="project-list"></div>
+
+        <div class="io-section">
+          <h3 data-i18n="projects.io.title"></h3>
+          <div class="btn-row">
+            <button class="btn-secondary" id="btn-export-all" data-i18n="projects.io.export"></button>
+            <button class="btn-secondary" id="btn-import-all" data-i18n="projects.io.import"></button>
+          </div>
+          <input type="file" id="import-all-file" accept=".json,application/json" style="display:none;">
+          <div class="hint" data-i18n="projects.io.hint"></div>
+        </div>
+      </div>
+    </section>
 
     <!-- ═══════════════════════════════════════════════════ -->
     <!-- VIEW: HOME                                           -->
     <!-- ═══════════════════════════════════════════════════ -->
-    <section class="view" id="view-home">
+    <section class="view hidden" id="view-home">
       <div class="card">
-        <h2 data-i18n="home.title"></h2>
+        <div class="view-header">
+          <button class="btn-back" id="btn-back-to-projects" data-i18n="common.back"></button>
+          <h2 data-i18n="home.title"></h2>
+        </div>
         <div id="home-stats" class="home-stats"></div>
         <button class="btn-primary" id="btn-start-event" data-i18n="home.btn.start"></button>
         <div class="btn-row">
@@ -71,6 +106,15 @@
         </div>
         <button class="btn-secondary hidden" id="btn-undo-expenses" data-i18n="expense.undo"></button>
         <div class="hint" id="expense-hint"></div>
+      </div>
+
+      <div class="card" id="home-predict-card">
+        <h2 data-i18n="predict.title"></h2>
+        <div class="hint" data-i18n="predict.hint"></div>
+        <div id="predict-player-list" class="predict-player-list"></div>
+        <div class="predict-team-counts" id="predict-team-counts"></div>
+        <div id="predict-result"></div>
+        <button class="btn-text" id="btn-predict-reset" data-i18n="predict.btn.reset"></button>
       </div>
     </section>
 
