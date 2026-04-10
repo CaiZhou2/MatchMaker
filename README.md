@@ -129,9 +129,9 @@ MatchMaker is a Progressive Web App, so you can "install" it from any modern mob
 
 ### 5. Review / manage
 
-- **Leaderboards** on home (points / win rate / spent tabs)
-- **Player database** for individual stats (+ delete)
-- **History** for expandable past-event detail
+- **Leaderboards** on home (points / win rate / participation tabs)
+- **Player database** for individual stats — tap a row for the player detail view (W/D/L breakdown, win-rate trend chart, head-to-head record)
+- **History archive** — every committed event is stored with full detail (teams, results, points/expense deltas, name snapshots) and round-trips through the JSON export/import. There's no in-app browser for it right now (the home button was dropped); inspect via the exported JSON or restore on another device via import.
 - **Expense statistics** card for total spent + reset (double-confirm) + undo (valid until next event commit)
 - **Data** → **Export JSON** / **Import JSON**
 

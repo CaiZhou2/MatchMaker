@@ -494,6 +494,124 @@ input:focus, textarea:focus, select:focus {
 }
 
 /* ─── Attendees ─────────────────────────────────────────────────── */
+/* ─── Setup view: 3-section split via fieldset/legend ──────────── */
+.setup-section {
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px 14px;
+  margin: 0 0 14px;
+  background: var(--card-bg);
+}
+.setup-section legend {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  padding: 0 6px;
+}
+.setup-section .form-row,
+.setup-section .form-group {
+  margin-bottom: 8px;
+}
+.setup-section .form-group:last-child {
+  margin-bottom: 0;
+}
+.setup-section .btn-primary {
+  margin-top: 10px;
+}
+.setup-expense-label {
+  display: block;
+  margin-top: 12px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* ─── Record-only view ─────────────────────────────────────────── */
+.record-attendee-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-inner-bg);
+  margin-bottom: 6px;
+}
+.record-attendee {
+  padding: 6px 12px;
+  border-radius: 16px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--border);
+  font-size: 0.88rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.record-attendee.team-a {
+  background: var(--primary);
+  border-color: var(--primary-dark);
+  color: #fff;
+  font-weight: 600;
+}
+.record-attendee.team-b {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+  font-weight: 600;
+}
+.record-team-counts {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: 12px;
+}
+.record-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.record-toggle input {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+.record-match-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  margin-bottom: 6px;
+}
+.record-match-main {
+  flex: 1;
+  min-width: 0;
+}
+.record-match-teams {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.record-match-result {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.record-kind-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
 .attendee-list {
   max-height: 240px;
   overflow-y: auto;

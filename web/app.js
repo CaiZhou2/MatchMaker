@@ -9,7 +9,7 @@
  */
 
 /* ─── View Router ───────────────────────────────────────────── */
-const Views = ['home', 'db', 'setup', 'teams', 'tournament', 'done', 'history', 'player', 'search'];
+const Views = ['home', 'db', 'setup', 'teams', 'tournament', 'done', 'history', 'player', 'search', 'recordonly'];
 let currentView = 'home';
 
 function showView(name) {
@@ -28,6 +28,7 @@ function showView(name) {
   if (name === 'history') renderHistory();
   if (name === 'player') renderPlayerDetail();
   if (name === 'search') renderSearch();
+  if (name === 'recordonly') renderRecordOnly();
 }
 
 function rerenderCurrentView() {
@@ -64,7 +65,23 @@ const ui = {
   lastEventSnapshot: null,
   lastBackupSuccess: null,
   lastCanShareFiles: false,
+
+  // Record-only mode: in-flight draft for the next match the user
+  // wants to add. Reset to a fresh empty draft after each successful
+  // add. The slot/per-attendee state is keyed by player id.
+  recordOnlyDraft: null,
 };
+
+function freshRecordOnlyDraft() {
+  return {
+    teamA: new Set(),     // player ids on team A
+    teamB: new Set(),     // player ids on team B
+    result: null,         // 'A' | 'B' | 'D' | null
+    scoreA: null,
+    scoreB: null,
+    countsForPoints: true,
+  };
+}
 
 /* ─── Small helpers ─────────────────────────────────────────── */
 function fmtPct(r) {
@@ -1351,6 +1368,316 @@ function confirmStartTournament() {
   showView('tournament');
 }
 
+/* ─── RECORD-ONLY MODE ──────────────────────────────────────── */
+//
+// An alternative to the cup pipeline: skip team formation entirely
+// and let the user log arbitrary matches as they happen, picking the
+// player composition for each match by hand. Each match independently
+// chooses whether it counts for tournament points; W/D/L (and therefore
+// win rate, head-to-head, attendance) always count.
+//
+// Storage shape: same as a regular event, with plan.format = 'recordonly'
+// and a per-match team list that grows as the user adds matches. Each
+// added match becomes its own one-court slot. commitEvent doesn't need
+// to know about the format — it just walks ev.results and applies the
+// `accumulateDelta(..., countPoints=match.kind === 'ranked')` rule that
+// already exists for friendly mode.
+
+function startRecordOnly() {
+  const attendeeIds = Array.from(ui.selectedAttendees);
+  if (attendeeIds.length < 2) {
+    alert(t('record.alert.need_attendees'));
+    return;
+  }
+  const ev = {
+    date: new Date().toISOString().slice(0, 10),
+    teamSize: parseInt(document.getElementById('team-size').value, 10) || 2,
+    numCourts: 1,
+    matchDuration: parseInt(document.getElementById('match-duration').value, 10) || 15,
+    totalTime: 0,  // not meaningful in record-only mode
+    expense: parseFloat(document.getElementById('weekly-expense').value) || 0,
+    attendees: attendeeIds,
+    teams: [],
+    plan: {
+      format: 'recordonly',
+      schedule: [],
+      slotsUsed: 0,
+      fits: true,
+    },
+    results: {},
+    phase: 'recording',
+  };
+  Storage.setCurrentEvent(ev);
+  ui.recordOnlyDraft = freshRecordOnlyDraft();
+  showView('recordonly');
+}
+
+function renderRecordOnly() {
+  const ev = Storage.getCurrentEvent();
+  if (!ev || ev.plan?.format !== 'recordonly') {
+    showView('home');
+    return;
+  }
+  if (!ui.recordOnlyDraft) ui.recordOnlyDraft = freshRecordOnlyDraft();
+  const draft = ui.recordOnlyDraft;
+
+  // Header line: date · attendees · expense
+  const expenseStr = ev.expense > 0 ? fmtMoney(ev.expense) : '0';
+  document.getElementById('record-event-info').textContent = t('record.event.info', {
+    date: ev.date,
+    attendees: ev.attendees.length,
+    expense: expenseStr,
+  });
+
+  // Attendee chips for selecting team A / team B. Tap cycles
+  // through (none → A → B → none).
+  const listDiv = document.getElementById('record-attendee-list');
+  listDiv.innerHTML = ev.attendees.map(pid => {
+    const p = Storage.getPlayer(pid);
+    if (!p) return '';
+    let cls = 'record-attendee';
+    let badge = '';
+    if (draft.teamA.has(pid)) { cls += ' team-a'; badge = ' A'; }
+    else if (draft.teamB.has(pid)) { cls += ' team-b'; badge = ' B'; }
+    return `<div class="${cls}" data-pid="${pid}">${escapeHtml(p.name)}${badge}</div>`;
+  }).join('');
+  listDiv.querySelectorAll('[data-pid]').forEach(el => {
+    el.onclick = () => {
+      const pid = el.dataset.pid;
+      // none → A → B → none
+      if (draft.teamA.has(pid)) {
+        draft.teamA.delete(pid);
+        draft.teamB.add(pid);
+      } else if (draft.teamB.has(pid)) {
+        draft.teamB.delete(pid);
+      } else {
+        draft.teamA.add(pid);
+      }
+      renderRecordOnly();
+    };
+  });
+
+  // Team-count summary line
+  document.getElementById('record-team-counts').textContent = t('record.add.counts_line', {
+    a: draft.teamA.size,
+    b: draft.teamB.size,
+  });
+
+  // Score inputs
+  const scoreAEl = document.getElementById('record-score-a');
+  const scoreBEl = document.getElementById('record-score-b');
+  scoreAEl.value = draft.scoreA != null ? draft.scoreA : '';
+  scoreBEl.value = draft.scoreB != null ? draft.scoreB : '';
+
+  // Result buttons (active state reflects draft.result)
+  ['a', 'd', 'b'].forEach(letter => {
+    const btn = document.getElementById('record-result-' + letter);
+    btn.classList.toggle('active', draft.result === letter.toUpperCase());
+  });
+
+  // Counts-for-points checkbox
+  document.getElementById('record-counts-points').checked = draft.countsForPoints;
+
+  // List of already-added matches
+  const matchListDiv = document.getElementById('record-match-list');
+  if (ev.plan.schedule.length === 0) {
+    matchListDiv.innerHTML = `<p class="empty">${escapeHtml(t('record.list.empty'))}</p>`;
+  } else {
+    matchListDiv.innerHTML = ev.plan.schedule.map((slot, slotIdx) => {
+      const m = slot.matches[0];
+      const teamA = ev.teams[m.team_a];
+      const teamB = ev.teams[m.team_b];
+      const aNames = teamA.players.map(pid => Storage.getPlayer(pid)?.name || '?').join(' & ');
+      const bNames = teamB.players.map(pid => Storage.getPlayer(pid)?.name || '?').join(' & ');
+      const entry = ev.results[`${slotIdx}:1`] || {};
+      const result = Storage._helpers.getMatchResult(entry);
+      const scores = Storage._helpers.getMatchScores(entry);
+      const scoreText = scores.a !== null && scores.b !== null
+        ? ` ${scores.a}-${scores.b}` : '';
+      const resultLabel =
+        result === 'A' ? t('hist.result.a_won', { name: t('record.match.team_a') })
+      : result === 'B' ? t('hist.result.b_won', { name: t('record.match.team_b') })
+      :                  t('hist.result.draw');
+      const kindLabel = m.kind === 'friendly'
+        ? t('record.match.kind_friendly')
+        : t('record.match.kind_ranked');
+      return `
+        <div class="record-match-row">
+          <div class="record-match-main">
+            <div class="record-match-teams">
+              <strong>${escapeHtml(t('record.match.team_a'))}:</strong> ${escapeHtml(aNames)}<br>
+              <strong>${escapeHtml(t('record.match.team_b'))}:</strong> ${escapeHtml(bNames)}
+            </div>
+            <div class="record-match-result">
+              ${escapeHtml(resultLabel)}${escapeHtml(scoreText)}
+              <span class="record-kind-tag">${escapeHtml(kindLabel)}</span>
+            </div>
+          </div>
+          <button class="btn-icon" data-record-remove="${slotIdx}">×</button>
+        </div>
+      `;
+    }).join('');
+    matchListDiv.querySelectorAll('[data-record-remove]').forEach(btn => {
+      btn.onclick = () => removeRecordOnlyMatch(parseInt(btn.dataset.recordRemove, 10));
+    });
+  }
+}
+
+function setRecordOnlyResult(result) {
+  if (!ui.recordOnlyDraft) ui.recordOnlyDraft = freshRecordOnlyDraft();
+  // Tap-to-toggle: same button twice clears
+  ui.recordOnlyDraft.result = ui.recordOnlyDraft.result === result ? null : result;
+  renderRecordOnly();
+}
+
+function setRecordOnlyScore(side, raw) {
+  if (!ui.recordOnlyDraft) ui.recordOnlyDraft = freshRecordOnlyDraft();
+  const draft = ui.recordOnlyDraft;
+  const trimmed = String(raw).trim();
+  let value = null;
+  if (trimmed !== '') {
+    const n = Number(trimmed);
+    if (Number.isFinite(n) && n >= 0) value = n;
+  }
+  if (side === 'a') draft.scoreA = value;
+  else draft.scoreB = value;
+  // Auto-derive the result from a complete score pair (same rule as
+  // the in-tournament score entry)
+  if (draft.scoreA !== null && draft.scoreB !== null) {
+    if (draft.scoreA > draft.scoreB) draft.result = 'A';
+    else if (draft.scoreA < draft.scoreB) draft.result = 'B';
+    else draft.result = 'D';
+  }
+  renderRecordOnly();
+}
+
+function setRecordOnlyCountsForPoints(checked) {
+  if (!ui.recordOnlyDraft) ui.recordOnlyDraft = freshRecordOnlyDraft();
+  ui.recordOnlyDraft.countsForPoints = !!checked;
+}
+
+// Validates the draft and adds the match to the current event.
+function addRecordOnlyMatch() {
+  const draft = ui.recordOnlyDraft;
+  if (!draft) return;
+  if (draft.teamA.size === 0 || draft.teamB.size === 0) {
+    alert(t('record.alert.need_both_teams'));
+    return;
+  }
+  if (!draft.result) {
+    alert(t('record.alert.need_result'));
+    return;
+  }
+  // No need to check for player overlap — the cycle-on-tap chip UI
+  // makes it impossible for a single player to land on both teams.
+
+  const ev = Storage.getCurrentEvent();
+  if (!ev) return;
+
+  // Materialise two new team objects (note: indices into ev.teams,
+  // never reordered, so existing schedule references stay stable
+  // even after a later remove leaves orphans behind)
+  const matchNum = ev.plan.schedule.length + 1;
+  const teamAIdx = ev.teams.length;
+  ev.teams.push({
+    id: `t_ro_${teamAIdx}`,
+    name: t('record.match.team_a_n', { n: matchNum }),
+    players: Array.from(draft.teamA),
+  });
+  const teamBIdx = ev.teams.length;
+  ev.teams.push({
+    id: `t_ro_${teamBIdx}`,
+    name: t('record.match.team_b_n', { n: matchNum }),
+    players: Array.from(draft.teamB),
+  });
+
+  // Add a new schedule slot for this match (one match per slot, on
+  // court 1 — record-only doesn't model courts/time at all)
+  const slotIdx = ev.plan.schedule.length;
+  ev.plan.schedule.push({
+    phase: 'recordonly',
+    round: matchNum,
+    slot: matchNum,
+    matches: [{
+      court: 1,
+      team_a: teamAIdx,
+      team_b: teamBIdx,
+      kind: draft.countsForPoints ? 'ranked' : 'friendly',
+    }],
+  });
+  ev.plan.slotsUsed = ev.plan.schedule.length;
+
+  // Record the result. Object-form so commitEvent's helper sees
+  // the scores too.
+  const entry = { result: draft.result };
+  if (draft.scoreA !== null) entry.scoreA = draft.scoreA;
+  if (draft.scoreB !== null) entry.scoreB = draft.scoreB;
+  ev.results[`${slotIdx}:1`] = entry;
+
+  Storage.setCurrentEvent(ev);
+  ui.recordOnlyDraft = freshRecordOnlyDraft();
+  renderRecordOnly();
+}
+
+// Removes one recorded match. Re-keys ev.results so the slot indices
+// stay contiguous; leaves orphan teams in ev.teams (harmless — nothing
+// references them, and renumbering would invalidate references in the
+// other still-existing slots).
+function removeRecordOnlyMatch(slotIdx) {
+  const ev = Storage.getCurrentEvent();
+  if (!ev || ev.plan?.format !== 'recordonly') return;
+  if (!confirm(t('record.confirm.remove'))) return;
+
+  ev.plan.schedule.splice(slotIdx, 1);
+  // Re-key results: slot N becomes slot N-1 for everything after the
+  // removed slot. Build a fresh results object so we don't leave
+  // orphan keys behind.
+  const oldResults = ev.results;
+  const newResults = {};
+  ev.plan.schedule.forEach((slot, newIdx) => {
+    const oldIdx = newIdx >= slotIdx ? newIdx + 1 : newIdx;
+    slot.matches.forEach(m => {
+      const oldKey = `${oldIdx}:${m.court}`;
+      const newKey = `${newIdx}:${m.court}`;
+      if (oldResults[oldKey]) newResults[newKey] = oldResults[oldKey];
+    });
+    // Update the slot's display number too
+    slot.slot = newIdx + 1;
+    slot.round = newIdx + 1;
+  });
+  ev.results = newResults;
+  ev.plan.slotsUsed = ev.plan.schedule.length;
+  Storage.setCurrentEvent(ev);
+  renderRecordOnly();
+}
+
+// Wraps up the record-only event by going through the same
+// commitEvent + auto-backup + done view path that finishTournament
+// uses. The plan.format = 'recordonly' tag carries through to the
+// history archive.
+function finishRecordOnly() {
+  const ev = Storage.getCurrentEvent();
+  if (!ev) return;
+  if (!confirm(t('record.confirm.finish'))) return;
+
+  try {
+    ui.lastEventSnapshot = JSON.parse(JSON.stringify(ev));
+    Storage.commitEvent();
+    ui.lastBackupSuccess = triggerBackupDownload();
+    ui.lastCanShareFiles = !!(
+      navigator.share &&
+      navigator.canShare &&
+      navigator.canShare({
+        files: [new File(['x'], 'x.json', { type: 'application/json' })],
+      })
+    );
+    showView('done');
+  } catch (e) {
+    console.error('Finish record-only failed:', e);
+    alert(t('tour.error.finish', { msg: e.message || String(e) }));
+  }
+}
+
 function finishTournament() {
   const ev = Storage.getCurrentEvent();
   if (!ev) return;
@@ -2044,6 +2371,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Setup
   document.getElementById('btn-form-teams').onclick = generateTeams;
+  document.getElementById('btn-record-only').onclick = startRecordOnly;
+
+  // Record-only view
+  document.getElementById('btn-record-add').onclick = addRecordOnlyMatch;
+  document.getElementById('btn-record-finish').onclick = finishRecordOnly;
+  document.getElementById('record-result-a').onclick = () => setRecordOnlyResult('A');
+  document.getElementById('record-result-d').onclick = () => setRecordOnlyResult('D');
+  document.getElementById('record-result-b').onclick = () => setRecordOnlyResult('B');
+  document.getElementById('record-score-a').addEventListener('blur', e => setRecordOnlyScore('a', e.target.value));
+  document.getElementById('record-score-b').addEventListener('blur', e => setRecordOnlyScore('b', e.target.value));
+  document.getElementById('record-counts-points').onchange = e => setRecordOnlyCountsForPoints(e.target.checked);
   document.getElementById('btn-quick-add').onclick = () => {
     const input = document.getElementById('quick-add-player');
     const p = Storage.addPlayer(input.value);
