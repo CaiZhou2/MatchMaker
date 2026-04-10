@@ -526,6 +526,163 @@ input:focus, textarea:focus, select:focus {
   font-weight: 600;
 }
 
+/* ─── Project list ─────────────────────────────────────────────── */
+.project-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  transition: background 0.15s;
+}
+.project-card:last-child { border-bottom: none; }
+.project-info {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+.project-name {
+  font-weight: 600;
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.project-meta {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.project-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 0.85rem;
+}
+.sort-label { color: var(--text-secondary); }
+.sort-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: var(--text);
+}
+.sort-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.header-project-name {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* ─── Prediction ───────────────────────────────────────────────── */
+.predict-player-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-inner-bg);
+  margin-bottom: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.predict-player {
+  padding: 5px 10px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--border);
+  font-size: 0.82rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.predict-player.team-a {
+  background: var(--primary);
+  border-color: var(--primary-dark);
+  color: #fff;
+  font-weight: 600;
+}
+.predict-player.team-b {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+  font-weight: 600;
+}
+.predict-team-counts {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: 10px;
+}
+.predict-bar {
+  display: flex;
+  height: 28px;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 10px 0 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.predict-bar-a {
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  transition: flex 0.3s;
+}
+.predict-bar-d {
+  background: var(--border);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  transition: flex 0.3s;
+}
+.predict-bar-b {
+  background: var(--success);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  transition: flex 0.3s;
+}
+.predict-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.predict-method {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+.predict-insufficient {
+  text-align: center;
+  padding: 16px 8px;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+}
+
 /* ─── Record-only view ─────────────────────────────────────────── */
 /* Each match in record-only mode is its own editable card. The user
    can add and reorder freely; nothing commits until "Finish". */

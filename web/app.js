@@ -9,8 +9,8 @@
  */
 
 /* ─── View Router ───────────────────────────────────────────── */
-const Views = ['home', 'db', 'setup', 'teams', 'tournament', 'done', 'history', 'player', 'search', 'recordonly'];
-let currentView = 'home';
+const Views = ['projects', 'home', 'db', 'setup', 'teams', 'tournament', 'done', 'history', 'player', 'search', 'recordonly'];
+let currentView = 'projects';
 
 function showView(name) {
   Views.forEach(v => {
@@ -18,7 +18,21 @@ function showView(name) {
   });
   currentView = name;
   window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  // Show/hide header project-name indicator
+  const projNameEl = document.getElementById('header-project-name');
+  if (projNameEl) {
+    if (ui.currentProjectId && name !== 'projects') {
+      const proj = ProjectRegistry.getById(ui.currentProjectId);
+      projNameEl.textContent = proj ? proj.name : '';
+      projNameEl.classList.remove('hidden');
+    } else {
+      projNameEl.classList.add('hidden');
+    }
+  }
+
   // Refresh per-view data
+  if (name === 'projects') renderProjects();
   if (name === 'home') renderHome();
   if (name === 'db') renderDB();
   if (name === 'setup') renderSetup();
@@ -39,6 +53,8 @@ function rerenderCurrentView() {
 
 /* ─── Transient UI State ────────────────────────────────────── */
 const ui = {
+  currentProjectId: null,       // which project the user is inside (null = on projects list)
+  projectSortMode: 'updatedAt', // 'name' | 'updatedAt' | 'playerCount'
   selectedAttendees: new Set(),
   swapMode: false,
   swapSelection: null,  // {teamIdx, playerIdx}
@@ -50,6 +66,8 @@ const ui = {
   dbSelected: new Set(),  // player ids
   detailPlayerId: null,   // currently-viewed player on the detail page
   detailFrom: 'db',       // 'db' | 'search' — where to return on back
+  predictTeamA: new Set(),  // player ids on prediction team A
+  predictTeamB: new Set(),  // player ids on prediction team B
   searchQuery: '',        // current text in the search input
   chosenMode: 'auto',     // user's selection from the tournament-mode dropdown
   // True when the active plan uses per-match teams (friendly /
@@ -78,6 +96,143 @@ function fmtWLD(p) {
 function fmtMoney(n) {
   const v = Number(n) || 0;
   return v.toFixed(2);
+}
+
+/* ─── PROJECTS ─────────────────────────────────────────────── */
+
+function renderProjects() {
+  const projects = ProjectRegistry.getAll();
+  let sorted;
+  switch (ui.projectSortMode) {
+    case 'name': sorted = ProjectRegistry.sortByName(projects); break;
+    case 'playerCount': sorted = ProjectRegistry.sortByPlayerCount(projects); break;
+    default: sorted = ProjectRegistry.sortByUpdatedAt(projects); break;
+  }
+
+  // Highlight active sort button
+  document.querySelectorAll('[data-sort-projects]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sortProjects === ui.projectSortMode);
+  });
+
+  const listEl = document.getElementById('project-list');
+  if (sorted.length === 0) {
+    listEl.innerHTML = `<div class="empty">${escapeHtml(t('projects.empty'))}</div>`;
+    return;
+  }
+
+  listEl.innerHTML = sorted.map(proj => {
+    const playerCount = ProjectRegistry._peekPlayerCount(proj.id);
+    const historyCount = ProjectRegistry._peekHistoryCount(proj.id);
+    return `
+      <div class="project-card" data-project-id="${proj.id}">
+        <div class="project-info" data-action="open" data-project-id="${proj.id}">
+          <div class="project-name">${escapeHtml(proj.name)}</div>
+          <div class="project-meta">${escapeHtml(t('projects.meta', { players: playerCount, events: historyCount }))}</div>
+        </div>
+        <div class="project-actions">
+          <button class="btn-icon" data-action="rename" data-project-id="${proj.id}" title="${escapeHtml(t('projects.btn.rename'))}">✏️</button>
+          <button class="btn-icon" data-action="delete" data-project-id="${proj.id}" title="${escapeHtml(t('projects.btn.delete'))}">🗑</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Event delegation for project cards
+  listEl.onclick = (e) => {
+    const target = e.target.closest('[data-action]');
+    if (!target) return;
+    const action = target.dataset.action;
+    const id = target.dataset.projectId;
+    if (action === 'open') openProject(id);
+    else if (action === 'rename') renameProject(id);
+    else if (action === 'delete') deleteProject(id);
+  };
+}
+
+function openProject(id) {
+  ui.currentProjectId = id;
+  Storage.bindProject(id);
+  showView('home');
+}
+
+function createProject() {
+  const name = prompt(t('projects.prompt.create'));
+  if (!name || !name.trim()) return;
+  const proj = ProjectRegistry.create(name.trim());
+  openProject(proj.id);
+}
+
+function renameProject(id) {
+  const proj = ProjectRegistry.getById(id);
+  if (!proj) return;
+  const name = prompt(t('projects.prompt.rename'), proj.name);
+  if (!name || !name.trim()) return;
+  ProjectRegistry.rename(id, name.trim());
+  renderProjects();
+}
+
+function deleteProject(id) {
+  const proj = ProjectRegistry.getById(id);
+  if (!proj) return;
+  if (!confirm(t('projects.confirm.delete', { name: proj.name }))) return;
+  if (!confirm(t('projects.confirm.delete2'))) return;
+  ProjectRegistry.delete(id);
+  if (ui.currentProjectId === id) {
+    ui.currentProjectId = null;
+    Storage.bindProject(null);
+  }
+  renderProjects();
+}
+
+function handleExportAllProjects() {
+  try {
+    const json = ProjectRegistry.exportAll();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `matchmaker-all-projects-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert(t('io.import.error', { msg: e.message }));
+  }
+}
+
+function handleImportAllProjects(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const text = String(reader.result);
+      const parsed = JSON.parse(text);
+      if (parsed.version !== 1 || !Array.isArray(parsed.projects) || typeof parsed.data !== 'object') {
+        throw new Error('Invalid multi-project backup format');
+      }
+      if (!confirm(t('projects.import.confirm', { count: parsed.projects.length }))) return;
+      ProjectRegistry.importAll(text);
+      ui.currentProjectId = null;
+      Storage.bindProject(null);
+      Storage._data = null;
+      alert(t('io.import.success'));
+      showView('projects');
+    } catch (err) {
+      alert(t('io.import.error', { msg: err.message }));
+    }
+  };
+  reader.onerror = () => alert(t('io.read.error'));
+  reader.readAsText(file);
+}
+
+function backToProjects() {
+  ui.currentProjectId = null;
+  Storage.bindProject(null);
+  Storage._data = null;
+  showView('projects');
 }
 
 /* ─── HOME ──────────────────────────────────────────────────── */
@@ -165,6 +320,213 @@ function renderHome() {
   document.getElementById('expense-hint').textContent = hasBackup
     ? t('expense.hint.has_backup')
     : '';
+
+  // Prediction card
+  renderPrediction();
+}
+
+/* ─── MATCH PREDICTION ─────────────────────────────────────── */
+
+function renderPrediction() {
+  const players = Storage.getAllPlayers();
+  const sorted = [...players].sort((a, b) => {
+    const wrA = Storage.getWinRate(a), wrB = Storage.getWinRate(b);
+    if (wrA !== wrB) return wrB - wrA;
+    return a.name.localeCompare(b.name);
+  });
+
+  // Drop stale ids that no longer exist
+  const liveIds = new Set(sorted.map(p => p.id));
+  for (const id of [...ui.predictTeamA]) if (!liveIds.has(id)) ui.predictTeamA.delete(id);
+  for (const id of [...ui.predictTeamB]) if (!liveIds.has(id)) ui.predictTeamB.delete(id);
+
+  // Player chips (cycle: none → A → B → none)
+  const listDiv = document.getElementById('predict-player-list');
+  if (players.length === 0) {
+    listDiv.innerHTML = '';
+    document.getElementById('predict-team-counts').textContent = '';
+    document.getElementById('predict-result').innerHTML = '';
+    return;
+  }
+  listDiv.innerHTML = sorted.map(p => {
+    let cls = 'predict-player';
+    let badge = '';
+    if (ui.predictTeamA.has(p.id)) { cls += ' team-a'; badge = ' A'; }
+    else if (ui.predictTeamB.has(p.id)) { cls += ' team-b'; badge = ' B'; }
+    return `<div class="${cls}" data-pid="${p.id}">${escapeHtml(p.name)}${badge}</div>`;
+  }).join('');
+  listDiv.querySelectorAll('[data-pid]').forEach(el => {
+    el.onclick = () => {
+      const pid = el.dataset.pid;
+      if (ui.predictTeamA.has(pid)) {
+        ui.predictTeamA.delete(pid);
+        ui.predictTeamB.add(pid);
+      } else if (ui.predictTeamB.has(pid)) {
+        ui.predictTeamB.delete(pid);
+      } else {
+        ui.predictTeamA.add(pid);
+      }
+      renderPrediction();
+    };
+  });
+
+  // Team counts
+  document.getElementById('predict-team-counts').textContent =
+    (ui.predictTeamA.size || ui.predictTeamB.size)
+      ? t('predict.team_counts', { a: ui.predictTeamA.size, b: ui.predictTeamB.size })
+      : '';
+
+  // Prediction result
+  const resultDiv = document.getElementById('predict-result');
+  if (ui.predictTeamA.size === 0 || ui.predictTeamB.size === 0) {
+    resultDiv.innerHTML = (ui.predictTeamA.size || ui.predictTeamB.size)
+      ? `<div class="predict-insufficient">${escapeHtml(t('predict.need_both'))}</div>`
+      : '';
+    return;
+  }
+
+  const pred = computePrediction(
+    Array.from(ui.predictTeamA),
+    Array.from(ui.predictTeamB)
+  );
+
+  if (pred.method === 'insufficient') {
+    resultDiv.innerHTML = `<div class="predict-insufficient">${escapeHtml(t('predict.method.insufficient'))}</div>`;
+    return;
+  }
+
+  const pctA = Math.round(pred.pA * 100);
+  const pctD = Math.round(pred.pD * 100);
+  const pctB = Math.max(0, 100 - pctA - pctD); // absorb rounding
+
+  let methodText;
+  if (pred.method === 'h2h') methodText = t('predict.method.h2h', { games: pred.h2hGames });
+  else if (pred.method === 'blended') methodText = t('predict.method.blended', { games: pred.h2hGames });
+  else methodText = t('predict.method.winrate');
+
+  resultDiv.innerHTML = `
+    <div class="predict-bar">
+      <div class="predict-bar-a" style="flex:${pctA || 1}">${pctA}%</div>
+      <div class="predict-bar-d" style="flex:${pctD || 1}">${pctD}%</div>
+      <div class="predict-bar-b" style="flex:${pctB || 1}">${pctB}%</div>
+    </div>
+    <div class="predict-labels">
+      <span>${escapeHtml(t('predict.a_win'))}</span>
+      <span>${escapeHtml(t('predict.draw'))}</span>
+      <span>${escapeHtml(t('predict.b_win'))}</span>
+    </div>
+    <div class="predict-method">${escapeHtml(methodText)}</div>
+  `;
+}
+
+// ─── Prediction algorithm ──────────────────────────────────────
+// Priority: H2H data → blended → overall win rates → insufficient.
+//
+// H2H: for every (a_i, b_j) cross-team pair, tally wins/draws/losses
+// from the A-side perspective. If enough games, predict directly from
+// those ratios.
+//
+// Win-rate fallback: compare average team win rates via a simple
+// Bradley-Terry-like model, using the average draw rate of all
+// involved players.
+//
+// Blending: when H2H exists but is sparse (< threshold), linearly
+// interpolate between H2H and WR predictions.
+const PREDICT_H2H_FULL = 5;   // H2H games for full confidence
+const PREDICT_MIN_GAMES = 3;  // minimum total games for WR fallback
+
+function computePrediction(teamAIds, teamBIds) {
+  // 1. Collect cross-team H2H data
+  let h2hAWins = 0, h2hDraws = 0, h2hBWins = 0, h2hGames = 0;
+  for (const aId of teamAIds) {
+    const h2h = Storage.getHeadToHead(aId);
+    for (const bId of teamBIds) {
+      if (h2h[bId]) {
+        h2hAWins += h2h[bId].wins;
+        h2hDraws += h2h[bId].draws;
+        h2hBWins += h2h[bId].losses;
+        h2hGames += h2h[bId].games;
+      }
+    }
+  }
+
+  // 2. Win-rate based prediction
+  const allIds = [...teamAIds, ...teamBIds];
+  const allPlayers = allIds.map(id => Storage.getPlayer(id)).filter(Boolean);
+  const totalGames = allPlayers.reduce((s, p) => s + Storage.getTotalGames(p), 0);
+
+  // Every player must have at least PREDICT_MIN_GAMES individual games
+  const allHaveEnough = allPlayers.length > 0 &&
+    allPlayers.every(p => Storage.getTotalGames(p) >= PREDICT_MIN_GAMES);
+
+  let wrPred = null;
+  if (allHaveEnough) {
+    const avgWrA = teamAIds.reduce((s, id) => {
+      const p = Storage.getPlayer(id);
+      return s + (p ? Storage.getWinRate(p) : 0);
+    }, 0) / teamAIds.length;
+    const avgWrB = teamBIds.reduce((s, id) => {
+      const p = Storage.getPlayer(id);
+      return s + (p ? Storage.getWinRate(p) : 0);
+    }, 0) / teamBIds.length;
+
+    // Average draw rate across all players
+    const avgDr = allPlayers.reduce((s, p) => {
+      const g = Storage.getTotalGames(p);
+      return s + (g > 0 ? (p.draws || 0) / g : 0);
+    }, 0) / allPlayers.length;
+
+    // Clamp draw probability to [0, 0.5]
+    const pDraw = Math.min(avgDr, 0.5);
+    const remaining = 1 - pDraw;
+    const sumWr = avgWrA + avgWrB;
+    if (sumWr > 0) {
+      wrPred = {
+        pA: remaining * avgWrA / sumWr,
+        pD: pDraw,
+        pB: remaining * avgWrB / sumWr,
+      };
+    } else {
+      // Both teams have 0 win rate — equal odds
+      wrPred = { pA: remaining / 2, pD: pDraw, pB: remaining / 2 };
+    }
+  }
+
+  // 3. H2H prediction
+  let h2hPred = null;
+  if (h2hGames > 0) {
+    h2hPred = {
+      pA: h2hAWins / h2hGames,
+      pD: h2hDraws / h2hGames,
+      pB: h2hBWins / h2hGames,
+    };
+  }
+
+  // 4. Decide method and blend
+  if (h2hGames >= PREDICT_H2H_FULL) {
+    // Full H2H confidence
+    return { method: 'h2h', ...h2hPred, h2hGames };
+  }
+  if (h2hGames > 0 && wrPred) {
+    // Blend: weight H2H by how close it is to full confidence
+    const w = h2hGames / PREDICT_H2H_FULL;
+    return {
+      method: 'blended',
+      pA: w * h2hPred.pA + (1 - w) * wrPred.pA,
+      pD: w * h2hPred.pD + (1 - w) * wrPred.pD,
+      pB: w * h2hPred.pB + (1 - w) * wrPred.pB,
+      h2hGames,
+    };
+  }
+  if (h2hGames > 0 && !wrPred) {
+    // Only H2H, no WR data — use whatever H2H we have
+    return { method: 'h2h', ...h2hPred, h2hGames };
+  }
+  if (wrPred) {
+    return { method: 'winrate', ...wrPred, h2hGames: 0 };
+  }
+
+  return { method: 'insufficient' };
 }
 
 function phaseLabel(phase) {
@@ -2214,7 +2576,9 @@ function triggerBackupDownload() {
     const a = document.createElement('a');
     const date = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `matchmaker-backup-${date}.json`;
+    const proj = ui.currentProjectId ? ProjectRegistry.getById(ui.currentProjectId) : null;
+    const projSlug = proj ? '-' + proj.name.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '_').slice(0, 20) : '';
+    a.download = `matchmaker-backup${projSlug}-${date}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2314,6 +2678,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize i18n first — applies static string translations to the DOM.
   I18N.init();
 
+  // Migrate single-project data to multi-project (no-op if already done).
+  migrateToMultiProject();
+
   // Refresh the theme toggle's icon now that the button exists in the DOM.
   // (applyTheme() was called pre-DOMContentLoaded to avoid a flash; this
   // call just updates the button glyph.)
@@ -2334,8 +2701,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Projects
+  document.getElementById('btn-create-project').onclick = createProject;
+  document.getElementById('btn-export-all').onclick = handleExportAllProjects;
+  document.getElementById('btn-import-all').onclick = () => {
+    document.getElementById('import-all-file').click();
+  };
+  document.getElementById('import-all-file').onchange = handleImportAllProjects;
+  document.querySelectorAll('[data-sort-projects]').forEach(btn => {
+    btn.onclick = () => {
+      ui.projectSortMode = btn.dataset.sortProjects;
+      renderProjects();
+    };
+  });
+  document.getElementById('btn-back-to-projects').onclick = backToProjects;
+
   // Home
   document.getElementById('btn-start-event').onclick = startNewEvent;
+  document.getElementById('btn-predict-reset').onclick = () => {
+    ui.predictTeamA.clear();
+    ui.predictTeamB.clear();
+    renderPrediction();
+  };
   document.getElementById('btn-goto-db').onclick = () => showView('db');
   document.getElementById('btn-goto-search').onclick = () => {
     ui.searchQuery = '';
@@ -2439,13 +2826,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-done-home').onclick = () => showView('home');
   document.getElementById('btn-share-backup').onclick = shareBackup;
 
-  // Back buttons
-  document.querySelectorAll('.btn-back').forEach(btn => {
+  // Back buttons (skip btn-back-to-projects — it has its own handler
+  // that unbinds the project before navigating)
+  document.querySelectorAll('.btn-back[data-goto]').forEach(btn => {
     btn.onclick = () => showView(btn.dataset.goto);
   });
 
-  // Initial render
-  showView('home');
+  // Initial render — start on the project list
+  showView('projects');
 });
 
 /* ─── Theme (light / dark) ──────────────────────────────────── */

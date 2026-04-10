@@ -19,8 +19,9 @@ MatchMaker is a small web app that lives in your phone's browser (no app store, 
 3. **Picks a tournament format** for the time and courts you have — you can let the app auto-choose, or pick from groups+knockout / round-robin / single elimination / friendly (no points).
 4. **Records match results** as you play, then commits everyone's points + costs in one tap at the end.
 5. **Record-only mode** (optional) — skip team formation entirely and log arbitrary pickup matches by hand, with per-match control over whether points are awarded.
+6. **Match prediction** — assign players to two hypothetical teams and see win/draw/loss probabilities based on head-to-head history and overall win rates.
 
-All data lives on **your phone only**. Nothing is uploaded to a server, no other organizer can see it.
+The app supports **multiple projects** — e.g. "Tuesday Badminton" and "Weekend Basketball" — each with its own players, history, and leaderboards. All data lives on **your phone only**. Nothing is uploaded to a server, no other organizer can see it.
 
 > 🤝 **Friendship first.** MatchMaker tries to make every match
 > *competitive*, not to figure out who's "actually the best".
@@ -63,7 +64,20 @@ The app is a PWA (Progressive Web App), which means it installs from a URL like 
 
 ---
 
-## Step 2 — Set up your player roster (one time)
+## Step 2 — Create a project (one time)
+
+When you first open the app, you'll see the **Projects** screen. A project is an independent tournament environment — its own players, history, and leaderboards.
+
+1. Tap **New Project** and give it a name (e.g. "Saturday Badminton").
+2. You're taken to the project's home page. Everything you do from here is scoped to this project.
+
+> 💡 If you run different activities (e.g. badminton on Tuesdays and basketball on weekends), create a separate project for each. Use the **← Back** button on the home page to return to the project list.
+
+> 💡 Existing users upgrading from an older version: your existing data is automatically migrated into a default project called "My Tournament". Nothing is lost.
+
+---
+
+## Step 3 — Set up your player roster (one time)
 
 You only need to do this once. New players added later just get added on top.
 
@@ -75,7 +89,7 @@ You only need to do this once. New players added later just get added on top.
 
 ---
 
-## Step 3 — Run your first event (~5 min setup, then play)
+## Step 4 — Run your first event (~5 min setup, then play)
 
 1. Home → **Start this week's event**.
 2. **Tick the people who showed up today.** The count appears at the top.
@@ -130,7 +144,7 @@ On the event setup screen (Step 3), below the "Generate teams" button, you'll se
 
 ---
 
-## Step 4 — Recording match results (during play)
+## Step 5 — Recording match results (during play)
 
 The tournament view shows every match in time-slot order. For each match:
 
@@ -144,7 +158,7 @@ Progress bar at the top shows `done / total` matches. The **Finish & update poin
 
 ---
 
-## Step 5 — Finishing the event (the most important step)
+## Step 6 — Finishing the event (the most important step)
 
 Tap **Finish & update points** → confirm.
 
@@ -172,7 +186,7 @@ The app does three things automatically:
 
 ---
 
-## Step 6 — Looking at stats during the week
+## Step 7 — Looking at stats during the week
 
 The home screen has three leaderboard tabs:
 
@@ -183,6 +197,14 @@ The home screen has three leaderboard tabs:
 Tap any player in the **Player Database** or use **🔍 Find Player** to see their detailed page: full stat breakdown plus a head-to-head table showing their record against every other player.
 
 The expense card on the home screen shows the running total spent. **📋 Copy expense info** copies the per-player breakdown for sharing in your group chat ("here's what everyone owes"). **🗑 Reset expenses** resets all totals (e.g., at the start of a new month) — there's a one-step undo until the next event is committed.
+
+### Match prediction
+
+Below the expense card is the **Match Prediction** tool. Tap player names to assign them to Team A (blue) or Team B (green) — tap again to cycle through `A → B → unselected`. Once both teams have players, a probability bar appears showing the estimated win / draw / loss chances.
+
+The prediction uses **head-to-head history first** (how the cross-team player pairs actually fared against each other in past matches). When there isn't enough H2H data, it falls back to **comparing overall win rates**. If any player has fewer than 3 games on record, the prediction shows "insufficient data".
+
+> 💡 This is a fun planning aid, not a crystal ball. Use it to eyeball whether a draft looks balanced before committing to it.
 
 ---
 

@@ -26,7 +26,24 @@ MatchMaker/
 
 ## 数据模型
 
-localStorage 里的键 `matchmaker-data-v1`：
+### 多项目注册表
+
+App 管理多个独立项目。项目注册表存在 `localStorage` 的
+`matchmaker-projects` 键下：
+
+```jsonc
+[
+  {
+    "id": "proj_1712345678_a1b2",
+    "name": "周六联赛",
+    "createdAt": "2026-04-10T08:00:00.000Z",
+    "updatedAt": "2026-04-10T10:30:00.000Z"
+  }
+]
+```
+
+每个项目的数据存在各自的键 `matchmaker-data-v1-{projectId}` 下，
+结构完全相同：
 
 ```jsonc
 {
@@ -45,7 +62,15 @@ localStorage 里的键 `matchmaker-data-v1`：
 }
 ```
 
-向前迁移逻辑在 `Storage._migrate()` 里 —— 只做加字段，所以老版本数据会在加载时自动升级。IndexedDB 作为影子备份同步存储同一份数据，防止 iOS Safari 的 ITP 机制在用户一周不打开时清除 `localStorage`。
+`Storage.bindProject(id)` 切换读写的目标键。所有既有方法
+（`getAllPlayers`、`commitEvent` 等）无需改动 —— 它们都走
+`load()` / `save()`，而这两个方法会使用动态键。
+
+**迁移**：老用户从单项目升级到多项目时，由
+`migrateToMultiProject()` 自动迁移。原有的 `matchmaker-data-v1`
+键被复制到一个新的默认项目中；原始键保留作为回退安全网。
+
+向前迁移逻辑在 `Storage._migrate()` 里 —— 只做加字段，所以老版本数据会在加载时自动升级。IndexedDB 作为影子备份同步存储同一份数据，防止 iOS Safari 的 ITP 机制在用户一周不打开时清除 `localStorage`。IDB 层是 key-aware 的：项目注册表和每个项目的数据各有自己的 IDB 键。
 
 ### 比赛事件（Event）结构
 
@@ -280,3 +305,27 @@ c. **跨池回退**（用户的"群体不够的话再从剩下的人中随机抽
 验证通过后 `commitEvent` 走和其他赛制完全相同的代码路径。没有
 仅记录模式专属的提交逻辑 —— 逐场的 `kind` 标记是区分计分与
 否的唯一依据，而 `accumulateDelta` 已经理解这个标记。
+
+### 比赛预测（`computePrediction`）
+
+主页包含一个预测工具，估算两支假设队伍的胜/平/负概率。算法
+使用两层模型加线性混合：
+
+1. **对位层**：对于每一对跨队选手 `(a_i, b_j)`，从
+   `getHeadToHead` 统计胜/平/负。如果所有对位的总比赛数 >= 5，
+   直接用这些比例来预测（method = `'h2h'`）。
+
+2. **胜率层**：计算每队的平均胜率，用类 Bradley-Terry 模型：
+   `P(A) = remaining × wrA / (wrA + wrB)`，其中
+   `remaining = 1 - 平均平局率`。该层仅在每位选手都有至少 3
+   场个人比赛记录时才激活。
+
+3. **混合**：当对位数据存在但稀疏（1-4 场）时，以权重
+   `w = h2hGames / 5` 线性插值 H2H 和胜率两个预测
+   （method = `'blended'`）。
+
+4. **数据不足**：如果所有选手场次都 < 3 且没有对位数据，返回
+   `method: 'insufficient'`。
+
+预测在每次点击选手时实时计算 —— 没有缓存或持久化。它只是对
+历史归档的一次轻量只读遍历（`getHeadToHead`）加几步算术运算。

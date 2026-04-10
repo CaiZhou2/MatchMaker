@@ -20,12 +20,14 @@ A mobile-friendly Progressive Web App for planning weekly team tournaments. Matc
 
 ## Features
 
+- **Multi-project**: manage multiple independent tournament environments (e.g. "Tuesday Badminton", "Weekend Basketball") — each has its own players, history, and leaderboards. Bulk export/import all projects at once
 - **Weekly cup workflow**: pick attendees → auto-form balanced teams → play → record results → commit
 - **Balanced draft**: top `N` players by win rate become captains (one per team); the rest are distributed via snake-draft + random fill (see [algorithm details](docs/ARCHITECTURE.md))
 - **Five tournament modes**: **Auto** (recommended — tries groups+knockout, then round-robin, then friendly), **Groups + Knockout**, **Round-robin**, **Single elimination**, **Friendly** (random fair pairings — no points, but win rate still updates)
 - **Record-only mode**: skip the team-formation pipeline entirely — add match cards by hand, pick players per match, choose whether each match counts for points. All cards stay editable until you tap "Finish & submit all"
 - **Free court during knockout**: reserves a court for eliminated teams' friendly matches
 - **Points and win-rate leaderboards**: `Win = 3`, `Draw = 1`, `Loss = 0`
+- **Match prediction**: assign players to two teams, see win/draw/loss probabilities — uses head-to-head history first, falls back to overall win rates
 - **Expense tracking**: split venue cost, per-player running totals, reset with undo
 - **Shareable schedule**: one-tap "copy as text" for group chats
 - **History archive**: every committed event stored with full detail

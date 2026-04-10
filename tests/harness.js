@@ -189,7 +189,7 @@ function createHarness(opts = {}) {
   // Bridge the const bindings over to `globalThis` (which IS the context)
   // so tests can reach them from outside the sandbox.
   vm.runInContext(
-    'globalThis.Storage = Storage; globalThis.I18N = I18N;',
+    'globalThis.Storage = Storage; globalThis.I18N = I18N; globalThis.ProjectRegistry = ProjectRegistry;',
     ctx,
     { filename: 'harness-bootstrap' }
   );

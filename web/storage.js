@@ -18,6 +18,13 @@
 
 const STORAGE_KEY = 'matchmaker-data-v1';
 
+// ─── Multi-project registry ──────────────────────────────────
+// Each project stores its data under its own localStorage key
+// (PROJECT_DATA_PREFIX + projectId). The registry itself lives
+// under PROJECTS_KEY and is a JSON array of project metadata.
+const PROJECTS_KEY = 'matchmaker-projects';
+const PROJECT_DATA_PREFIX = 'matchmaker-data-v1-';
+
 // IndexedDB shadow-backup constants. We never read from IDB during
 // normal operation — it's only consulted on startup IF localStorage
 // turns up empty (i.e. iOS Safari ITP just nuked it). The whole point
@@ -56,13 +63,14 @@ function _idbOpen() {
   });
 }
 
-async function _idbWrite(jsonString) {
+async function _idbWrite(jsonString, key) {
+  if (key === undefined) key = IDB_KEY;
   try {
     const db = await _idbOpen();
     if (!db) return false;
     return new Promise((resolve) => {
       const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).put(jsonString, IDB_KEY);
+      tx.objectStore(IDB_STORE).put(jsonString, key);
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => resolve(false);
       tx.onabort = () => resolve(false);
@@ -73,13 +81,14 @@ async function _idbWrite(jsonString) {
   }
 }
 
-async function _idbRead() {
+async function _idbRead(key) {
+  if (key === undefined) key = IDB_KEY;
   try {
     const db = await _idbOpen();
     if (!db) return null;
     return new Promise((resolve) => {
       const tx = db.transaction(IDB_STORE, 'readonly');
-      const req = tx.objectStore(IDB_STORE).get(IDB_KEY);
+      const req = tx.objectStore(IDB_STORE).get(key);
       req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => resolve(null);
     });
@@ -89,13 +98,210 @@ async function _idbRead() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ProjectRegistry — manages the project list (metadata only).
+// Per-project data is handled by Storage after bindProject().
+// ═══════════════════════════════════════════════════════════════
+const ProjectRegistry = {
+  _projects: null,
+
+  load() {
+    if (this._projects) return this._projects;
+    try {
+      const raw = localStorage.getItem(PROJECTS_KEY);
+      this._projects = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      this._projects = [];
+    }
+    return this._projects;
+  },
+
+  save() {
+    const json = JSON.stringify(this._projects);
+    localStorage.setItem(PROJECTS_KEY, json);
+    _idbWrite(json, PROJECTS_KEY).catch(() => {});
+  },
+
+  getAll() {
+    return this.load().slice();
+  },
+
+  getById(id) {
+    return this.load().find(p => p.id === id) || null;
+  },
+
+  create(name) {
+    const projects = this.load();
+    const id = 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const now = new Date().toISOString();
+    const proj = { id, name: name.trim(), createdAt: now, updatedAt: now };
+    projects.push(proj);
+    this.save();
+    // Initialize empty project data
+    const emptyData = JSON.stringify({ players: {}, currentEvent: null, history: [], expenseBackup: null });
+    localStorage.setItem(PROJECT_DATA_PREFIX + id, emptyData);
+    _idbWrite(emptyData, PROJECT_DATA_PREFIX + id).catch(() => {});
+    return proj;
+  },
+
+  rename(id, name) {
+    const proj = this.getById(id);
+    if (!proj) return;
+    proj.name = name.trim();
+    proj.updatedAt = new Date().toISOString();
+    this.save();
+  },
+
+  delete(id) {
+    const projects = this.load();
+    const idx = projects.findIndex(p => p.id === id);
+    if (idx < 0) return;
+    projects.splice(idx, 1);
+    this.save();
+    localStorage.removeItem(PROJECT_DATA_PREFIX + id);
+    // IDB cleanup is best-effort
+    _idbWrite('', PROJECT_DATA_PREFIX + id).catch(() => {});
+  },
+
+  updateTimestamp(id) {
+    const proj = this.getById(id);
+    if (!proj) return;
+    proj.updatedAt = new Date().toISOString();
+    this.save();
+  },
+
+  // ─── Sorting helpers (return new arrays) ──────────────────
+  sortByName(list) {
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+  },
+
+  sortByUpdatedAt(list) {
+    return [...list].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  },
+
+  sortByPlayerCount(list) {
+    return [...list].sort((a, b) => {
+      const countA = ProjectRegistry._peekPlayerCount(a.id);
+      const countB = ProjectRegistry._peekPlayerCount(b.id);
+      return countB - countA;
+    });
+  },
+
+  // Peek into a project's data to count players without fully loading
+  _peekPlayerCount(id) {
+    try {
+      const raw = localStorage.getItem(PROJECT_DATA_PREFIX + id);
+      if (!raw) return 0;
+      const data = JSON.parse(raw);
+      return data && data.players ? Object.keys(data.players).length : 0;
+    } catch (e) { return 0; }
+  },
+
+  _peekHistoryCount(id) {
+    try {
+      const raw = localStorage.getItem(PROJECT_DATA_PREFIX + id);
+      if (!raw) return 0;
+      const data = JSON.parse(raw);
+      return Array.isArray(data?.history) ? data.history.length : 0;
+    } catch (e) { return 0; }
+  },
+
+  // ─── Bulk export / import ─────────────────────────────────
+  exportAll() {
+    const projects = this.load();
+    const data = {};
+    projects.forEach(proj => {
+      try {
+        const raw = localStorage.getItem(PROJECT_DATA_PREFIX + proj.id);
+        data[proj.id] = raw ? JSON.parse(raw) : null;
+      } catch (e) { data[proj.id] = null; }
+    });
+    return JSON.stringify({ version: 1, projects, data }, null, 2);
+  },
+
+  importAll(jsonStr) {
+    const parsed = JSON.parse(jsonStr);
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.projects) || typeof parsed.data !== 'object') {
+      throw new Error('Invalid multi-project backup format');
+    }
+    // Clear all existing project data keys
+    const oldProjects = this.load();
+    oldProjects.forEach(p => localStorage.removeItem(PROJECT_DATA_PREFIX + p.id));
+    // Write new projects
+    parsed.projects.forEach(proj => {
+      const projData = parsed.data[proj.id];
+      if (projData) {
+        const json = JSON.stringify(projData);
+        localStorage.setItem(PROJECT_DATA_PREFIX + proj.id, json);
+        _idbWrite(json, PROJECT_DATA_PREFIX + proj.id).catch(() => {});
+      }
+    });
+    this._projects = parsed.projects;
+    this.save();
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════
+// Migration: existing single-project data → multi-project
+// ═══════════════════════════════════════════════════════════════
+function migrateToMultiProject() {
+  // Already migrated?
+  const existingRegistry = localStorage.getItem(PROJECTS_KEY);
+  if (existingRegistry) return;
+
+  const legacyRaw = localStorage.getItem(STORAGE_KEY);
+  if (!legacyRaw) {
+    // No existing data — initialize empty registry
+    localStorage.setItem(PROJECTS_KEY, '[]');
+    return;
+  }
+
+  // Validate legacy data
+  try { JSON.parse(legacyRaw); } catch (e) {
+    localStorage.setItem(PROJECTS_KEY, '[]');
+    return;
+  }
+
+  // Create a default project from legacy data
+  const id = 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  const now = new Date().toISOString();
+  const defaultName = (typeof t === 'function') ? t('projects.default_name') : 'My Tournament';
+  const registry = [{ id, name: defaultName, createdAt: now, updatedAt: now }];
+
+  // Copy legacy data to the new per-project key
+  localStorage.setItem(PROJECT_DATA_PREFIX + id, legacyRaw);
+  localStorage.setItem(PROJECTS_KEY, JSON.stringify(registry));
+
+  // Mirror to IDB
+  _idbWrite(legacyRaw, PROJECT_DATA_PREFIX + id).catch(() => {});
+  _idbWrite(JSON.stringify(registry), PROJECTS_KEY).catch(() => {});
+
+  // DO NOT delete the legacy key — safety net for rollback.
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Storage — per-project data (players, events, history, expenses)
+// Call bindProject(id) before using any other method.
+// ═══════════════════════════════════════════════════════════════
 const Storage = {
   _data: null,
+  _projectId: null,
+
+  // Bind to a specific project. Must be called before load/save.
+  bindProject(id) {
+    this._projectId = id;
+    this._data = null;  // force reload from the new key
+  },
+
+  _storageKey() {
+    if (this._projectId) return PROJECT_DATA_PREFIX + this._projectId;
+    return STORAGE_KEY;  // legacy fallback during migration
+  },
 
   load() {
     if (this._data) return this._data;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(this._storageKey());
       const parsed = raw ? JSON.parse(raw) : null;
       this._data = this._migrate(parsed);
     } catch (e) {
@@ -107,12 +313,18 @@ const Storage = {
 
   save() {
     try {
+      const lsKey = this._storageKey();
       const json = JSON.stringify(this._data);
-      localStorage.setItem(STORAGE_KEY, json);
-      // Mirror to IndexedDB as a durability safety net (fire-and-forget;
-      // we don't await because save() is synchronous from the caller's
-      // POV and should never block on IO).
-      _idbWrite(json).catch(() => {});
+      localStorage.setItem(lsKey, json);
+      // Mirror to IndexedDB. Use the project-specific key when bound,
+      // or the legacy IDB_KEY when unbound (backward compat with
+      // pre-multi-project data).
+      const idbKey = this._projectId ? lsKey : IDB_KEY;
+      _idbWrite(json, idbKey).catch(() => {});
+      // Keep the project registry's updatedAt fresh
+      if (this._projectId) {
+        ProjectRegistry.updateTimestamp(this._projectId);
+      }
     } catch (e) {
       console.error('Storage save failed:', e);
     }
@@ -120,28 +332,56 @@ const Storage = {
 
   /**
    * Called once at app startup, BEFORE the first load(), to recover
-   * data from the IDB shadow if localStorage has been wiped (the
-   * canonical iOS Safari ITP failure mode). If IDB also has nothing,
-   * resolves with `false` and we proceed with a fresh empty state.
-   *
-   * Async because IDB is async-only. Idempotent — safe to call from
-   * tests or on every page load. Never throws.
+   * data from the IDB shadow if localStorage has been wiped.
+   * Now handles both legacy single-key and multi-project keys.
    */
   async restoreFromIdbIfNeeded() {
+    let restored = false;
     try {
-      // Already have localStorage data → nothing to do
-      const existing = localStorage.getItem(STORAGE_KEY);
-      if (existing && existing.length > 2) return false;  // "{}" is len 2
+      // 1. Restore legacy key (needed for migration)
+      const existingLegacy = localStorage.getItem(STORAGE_KEY);
+      if (!existingLegacy || existingLegacy.length <= 2) {
+        const legacyJson = await _idbRead(IDB_KEY);
+        if (legacyJson) {
+          JSON.parse(legacyJson);  // validate
+          localStorage.setItem(STORAGE_KEY, legacyJson);
+          restored = true;
+        }
+      }
 
-      const json = await _idbRead();
-      if (!json) return false;
-      // Validate it parses before writing it back to localStorage,
-      // otherwise corrupt IDB data would poison both stores.
-      JSON.parse(json);
-      localStorage.setItem(STORAGE_KEY, json);
+      // 2. Restore project registry
+      const existingReg = localStorage.getItem(PROJECTS_KEY);
+      if (!existingReg || existingReg.length <= 2) {
+        const regJson = await _idbRead(PROJECTS_KEY);
+        if (regJson) {
+          JSON.parse(regJson);
+          localStorage.setItem(PROJECTS_KEY, regJson);
+          restored = true;
+        }
+      }
+
+      // 3. Restore each project's data
+      let projects = [];
+      try {
+        projects = JSON.parse(localStorage.getItem(PROJECTS_KEY) || '[]');
+      } catch (e) { /* ignore */ }
+      for (const proj of projects) {
+        const dataKey = PROJECT_DATA_PREFIX + proj.id;
+        const existing = localStorage.getItem(dataKey);
+        if (!existing || existing.length <= 2) {
+          const json = await _idbRead(dataKey);
+          if (json) {
+            JSON.parse(json);
+            localStorage.setItem(dataKey, json);
+            restored = true;
+          }
+        }
+      }
+
       // Force re-load on next access
       this._data = null;
-      return true;
+      ProjectRegistry._projects = null;
+      return restored;
     } catch (e) {
       console.warn('IDB restore failed:', e);
       return false;
