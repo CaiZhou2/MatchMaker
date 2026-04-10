@@ -18,6 +18,7 @@ MatchMaker is a small web app that lives in your phone's browser (no app store, 
 2. **Drafts balanced teams** automatically based on each player's win rate.
 3. **Picks a tournament format** for the time and courts you have — you can let the app auto-choose, or pick from groups+knockout / round-robin / single elimination / friendly (no points).
 4. **Records match results** as you play, then commits everyone's points + costs in one tap at the end.
+5. **Record-only mode** (optional) — skip team formation entirely and log arbitrary pickup matches by hand, with per-match control over whether points are awarded.
 
 All data lives on **your phone only**. Nothing is uploaded to a server, no other organizer can see it.
 
@@ -104,6 +105,28 @@ You only need to do this once. New players added later just get added on top.
 - **📋 Copy schedule** — copies the schedule as plain text. Paste into your group chat so everyone knows what's happening.
 
 When you're happy with the lineup, tap **Start tournament**.
+
+---
+
+## Alternative: Record-only mode (no auto-team-formation)
+
+Don't need the balanced-draft → cup-format pipeline? Maybe your group just plays pickup games and you want to track who played whom and keep the stats running. The **Record-only mode** skips team formation entirely and lets you log matches by hand.
+
+On the event setup screen (Step 3), below the "Generate teams" button, you'll see a separate **📝 Record-only mode** button. Tap it instead of "Generate teams".
+
+**How it works:**
+
+1. You land on a screen with zero match cards and an "**+ Add a match**" button.
+2. Tap the button to create a blank match card. Each card has:
+   - **Player chips** — tap a name to cycle: unselected → Team A (blue) → Team B (green) → unselected. A player can be on different teams in different matches.
+   - **Score inputs** + **A wins / Draw / B wins** buttons — same as the regular tournament. Filling both scores auto-picks the result.
+   - **"This match counts for points"** checkbox — checked by default. Uncheck it to make the match friendly (W/D/L still records, but no tournament points are awarded).
+   - **Remove button** (×) — deletes the card.
+3. Add as many match cards as you like. **Every card stays fully editable** — you can change players, scores, result, and the counts-for-points flag at any time.
+4. When you're done, tap **✅ Finish & submit all matches**. The app validates that every card has at least one player on each side and a result. If anything's missing, you get a pinpoint alert ("Match 3 is incomplete: …") and the commit is blocked.
+5. After confirmation, all matches commit to the database in one go — same auto-backup + done view as a regular tournament.
+
+> 💡 Record-only mode and the cup-tournament flow share the same underlying commit logic. Points, win rate, head-to-head, attendance, and expenses all update identically — the only difference is *how* the matches are generated (manually vs. scheduled).
 
 ---
 

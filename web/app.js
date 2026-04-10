@@ -66,22 +66,7 @@ const ui = {
   lastBackupSuccess: null,
   lastCanShareFiles: false,
 
-  // Record-only mode: in-flight draft for the next match the user
-  // wants to add. Reset to a fresh empty draft after each successful
-  // add. The slot/per-attendee state is keyed by player id.
-  recordOnlyDraft: null,
 };
-
-function freshRecordOnlyDraft() {
-  return {
-    teamA: new Set(),     // player ids on team A
-    teamB: new Set(),     // player ids on team B
-    result: null,         // 'A' | 'B' | 'D' | null
-    scoreA: null,
-    scoreB: null,
-    countsForPoints: true,
-  };
-}
 
 /* ─── Small helpers ─────────────────────────────────────────── */
 function fmtPct(r) {
@@ -1382,6 +1367,12 @@ function confirmStartTournament() {
 // to know about the format — it just walks ev.results and applies the
 // `accumulateDelta(..., countPoints=match.kind === 'ranked')` rule that
 // already exists for friendly mode.
+//
+// UI model: every match in ev.plan.schedule renders as its own
+// editable card. There is no separate "draft" — the schedule itself
+// IS the draft until the user taps "Finish & submit all", at which
+// point we validate every card and run the same commitEvent path the
+// regular tournament uses.
 
 function startRecordOnly() {
   const attendeeIds = Array.from(ui.selectedAttendees);
@@ -1408,7 +1399,6 @@ function startRecordOnly() {
     phase: 'recording',
   };
   Storage.setCurrentEvent(ev);
-  ui.recordOnlyDraft = freshRecordOnlyDraft();
   showView('recordonly');
 }
 
@@ -1418,8 +1408,6 @@ function renderRecordOnly() {
     showView('home');
     return;
   }
-  if (!ui.recordOnlyDraft) ui.recordOnlyDraft = freshRecordOnlyDraft();
-  const draft = ui.recordOnlyDraft;
 
   // Header line: date · attendees · expense
   const expenseStr = ev.expense > 0 ? fmtMoney(ev.expense) : '0';
@@ -1429,171 +1417,184 @@ function renderRecordOnly() {
     expense: expenseStr,
   });
 
-  // Attendee chips for selecting team A / team B. Tap cycles
-  // through (none → A → B → none).
-  const listDiv = document.getElementById('record-attendee-list');
-  listDiv.innerHTML = ev.attendees.map(pid => {
+  const matchListDiv = document.getElementById('record-match-list');
+  if (ev.plan.schedule.length === 0) {
+    matchListDiv.innerHTML = `<p class="empty">${escapeHtml(t('record.list.empty'))}</p>`;
+    return;
+  }
+  matchListDiv.innerHTML = ev.plan.schedule
+    .map((slot, slotIdx) => renderRecordOnlyMatchCard(ev, slot, slotIdx))
+    .join('');
+  bindRecordOnlyMatchCards();
+}
+
+// Renders one editable match card. Each card is fully self-contained
+// — its own player chips, score inputs, result buttons, kind toggle
+// and remove button. State is read directly from ev.teams /
+// ev.results so there's no separate draft model to keep in sync.
+function renderRecordOnlyMatchCard(ev, slot, slotIdx) {
+  const m = slot.matches[0];
+  const teamA = ev.teams[m.team_a];
+  const teamB = ev.teams[m.team_b];
+  const aSet = new Set(teamA.players);
+  const bSet = new Set(teamB.players);
+  const entry = ev.results[`${slotIdx}:1`] || {};
+  const result = entry.result || null;
+  const scoreA = entry.scoreA != null ? entry.scoreA : '';
+  const scoreB = entry.scoreB != null ? entry.scoreB : '';
+  const isRanked = m.kind !== 'friendly';
+
+  const chipsHtml = ev.attendees.map(pid => {
     const p = Storage.getPlayer(pid);
     if (!p) return '';
     let cls = 'record-attendee';
     let badge = '';
-    if (draft.teamA.has(pid)) { cls += ' team-a'; badge = ' A'; }
-    else if (draft.teamB.has(pid)) { cls += ' team-b'; badge = ' B'; }
-    return `<div class="${cls}" data-pid="${pid}">${escapeHtml(p.name)}${badge}</div>`;
+    if (aSet.has(pid)) { cls += ' team-a'; badge = ' A'; }
+    else if (bSet.has(pid)) { cls += ' team-b'; badge = ' B'; }
+    return `<div class="${cls}" data-pid="${pid}" data-action="chip">${escapeHtml(p.name)}${badge}</div>`;
   }).join('');
-  listDiv.querySelectorAll('[data-pid]').forEach(el => {
-    el.onclick = () => {
-      const pid = el.dataset.pid;
-      // none → A → B → none
-      if (draft.teamA.has(pid)) {
-        draft.teamA.delete(pid);
-        draft.teamB.add(pid);
-      } else if (draft.teamB.has(pid)) {
-        draft.teamB.delete(pid);
-      } else {
-        draft.teamA.add(pid);
-      }
-      renderRecordOnly();
-    };
-  });
 
-  // Team-count summary line
-  document.getElementById('record-team-counts').textContent = t('record.add.counts_line', {
-    a: draft.teamA.size,
-    b: draft.teamB.size,
-  });
-
-  // Score inputs
-  const scoreAEl = document.getElementById('record-score-a');
-  const scoreBEl = document.getElementById('record-score-b');
-  scoreAEl.value = draft.scoreA != null ? draft.scoreA : '';
-  scoreBEl.value = draft.scoreB != null ? draft.scoreB : '';
-
-  // Result buttons (active state reflects draft.result)
-  ['a', 'd', 'b'].forEach(letter => {
-    const btn = document.getElementById('record-result-' + letter);
-    btn.classList.toggle('active', draft.result === letter.toUpperCase());
-  });
-
-  // Counts-for-points checkbox
-  document.getElementById('record-counts-points').checked = draft.countsForPoints;
-
-  // List of already-added matches
-  const matchListDiv = document.getElementById('record-match-list');
-  if (ev.plan.schedule.length === 0) {
-    matchListDiv.innerHTML = `<p class="empty">${escapeHtml(t('record.list.empty'))}</p>`;
-  } else {
-    matchListDiv.innerHTML = ev.plan.schedule.map((slot, slotIdx) => {
-      const m = slot.matches[0];
-      const teamA = ev.teams[m.team_a];
-      const teamB = ev.teams[m.team_b];
-      const aNames = teamA.players.map(pid => Storage.getPlayer(pid)?.name || '?').join(' & ');
-      const bNames = teamB.players.map(pid => Storage.getPlayer(pid)?.name || '?').join(' & ');
-      const entry = ev.results[`${slotIdx}:1`] || {};
-      const result = Storage._helpers.getMatchResult(entry);
-      const scores = Storage._helpers.getMatchScores(entry);
-      const scoreText = scores.a !== null && scores.b !== null
-        ? ` ${scores.a}-${scores.b}` : '';
-      const resultLabel =
-        result === 'A' ? t('hist.result.a_won', { name: t('record.match.team_a') })
-      : result === 'B' ? t('hist.result.b_won', { name: t('record.match.team_b') })
-      :                  t('hist.result.draw');
-      const kindLabel = m.kind === 'friendly'
-        ? t('record.match.kind_friendly')
-        : t('record.match.kind_ranked');
-      return `
-        <div class="record-match-row">
-          <div class="record-match-main">
-            <div class="record-match-teams">
-              <strong>${escapeHtml(t('record.match.team_a'))}:</strong> ${escapeHtml(aNames)}<br>
-              <strong>${escapeHtml(t('record.match.team_b'))}:</strong> ${escapeHtml(bNames)}
-            </div>
-            <div class="record-match-result">
-              ${escapeHtml(resultLabel)}${escapeHtml(scoreText)}
-              <span class="record-kind-tag">${escapeHtml(kindLabel)}</span>
-            </div>
-          </div>
-          <button class="btn-icon" data-record-remove="${slotIdx}">×</button>
-        </div>
-      `;
-    }).join('');
-    matchListDiv.querySelectorAll('[data-record-remove]').forEach(btn => {
-      btn.onclick = () => removeRecordOnlyMatch(parseInt(btn.dataset.recordRemove, 10));
-    });
-  }
+  const phPlaceholder = escapeHtml(t('tour.score.placeholder'));
+  return `
+    <div class="record-match-card" data-slot="${slotIdx}">
+      <div class="record-match-card-header">
+        <strong>${escapeHtml(t('record.match.label', { n: slotIdx + 1 }))}</strong>
+        <button class="btn-icon" data-action="remove" title="×">×</button>
+      </div>
+      <div class="record-attendee-list">${chipsHtml}</div>
+      <div class="record-team-counts">${escapeHtml(t('record.add.counts_line', { a: aSet.size, b: bSet.size }))}</div>
+      <div class="score-inputs">
+        <input class="score-input" type="number" inputmode="numeric" min="0" max="999"
+               data-action="score" data-side="a" value="${scoreA}" placeholder="${phPlaceholder}">
+        <span class="score-dash">−</span>
+        <input class="score-input" type="number" inputmode="numeric" min="0" max="999"
+               data-action="score" data-side="b" value="${scoreB}" placeholder="${phPlaceholder}">
+      </div>
+      <div class="result-btns">
+        <button class="result-btn ${result === 'A' ? 'active' : ''}" data-action="result" data-result="A">${escapeHtml(t('tour.result.a'))}</button>
+        <button class="result-btn ${result === 'D' ? 'active' : ''}" data-action="result" data-result="D">${escapeHtml(t('tour.result.d'))}</button>
+        <button class="result-btn ${result === 'B' ? 'active' : ''}" data-action="result" data-result="B">${escapeHtml(t('tour.result.b'))}</button>
+      </div>
+      <label class="record-toggle">
+        <input type="checkbox" data-action="counts" ${isRanked ? 'checked' : ''}>
+        <span>${escapeHtml(t('record.add.counts'))}</span>
+      </label>
+    </div>
+  `;
 }
 
-function setRecordOnlyResult(result) {
-  if (!ui.recordOnlyDraft) ui.recordOnlyDraft = freshRecordOnlyDraft();
-  // Tap-to-toggle: same button twice clears
-  ui.recordOnlyDraft.result = ui.recordOnlyDraft.result === result ? null : result;
+function bindRecordOnlyMatchCards() {
+  document.querySelectorAll('#record-match-list .record-match-card').forEach(card => {
+    const slotIdx = parseInt(card.dataset.slot, 10);
+    card.querySelectorAll('[data-action="chip"]').forEach(el => {
+      el.onclick = () => toggleRecordOnlyChip(slotIdx, el.dataset.pid);
+    });
+    card.querySelectorAll('[data-action="result"]').forEach(btn => {
+      btn.onclick = () => setRecordOnlyMatchResult(slotIdx, btn.dataset.result);
+    });
+    card.querySelectorAll('[data-action="score"]').forEach(input => {
+      input.addEventListener('blur', () => setRecordOnlyMatchScore(slotIdx, input.dataset.side, input.value));
+    });
+    const countsCb = card.querySelector('[data-action="counts"]');
+    if (countsCb) countsCb.onchange = () => setRecordOnlyMatchCounts(slotIdx, countsCb.checked);
+    const removeBtn = card.querySelector('[data-action="remove"]');
+    if (removeBtn) removeBtn.onclick = () => removeRecordOnlyMatch(slotIdx);
+  });
+}
+
+// Cycle a player chip on a specific match: none → A → B → none.
+// Mutates the team's player list directly — the schedule references
+// teams by index into ev.teams, and we never reorder ev.teams, so
+// other matches keep working.
+function toggleRecordOnlyChip(slotIdx, pid) {
+  const ev = Storage.getCurrentEvent();
+  if (!ev) return;
+  const slot = ev.plan.schedule[slotIdx];
+  if (!slot) return;
+  const m = slot.matches[0];
+  const teamA = ev.teams[m.team_a];
+  const teamB = ev.teams[m.team_b];
+  const aIdx = teamA.players.indexOf(pid);
+  const bIdx = teamB.players.indexOf(pid);
+  if (aIdx >= 0) {
+    teamA.players.splice(aIdx, 1);
+    teamB.players.push(pid);
+  } else if (bIdx >= 0) {
+    teamB.players.splice(bIdx, 1);
+  } else {
+    teamA.players.push(pid);
+  }
+  Storage.setCurrentEvent(ev);
   renderRecordOnly();
 }
 
-function setRecordOnlyScore(side, raw) {
-  if (!ui.recordOnlyDraft) ui.recordOnlyDraft = freshRecordOnlyDraft();
-  const draft = ui.recordOnlyDraft;
+function setRecordOnlyMatchResult(slotIdx, result) {
+  const ev = Storage.getCurrentEvent();
+  if (!ev) return;
+  const key = `${slotIdx}:1`;
+  const entry = ev.results[key] || {};
+  // Tap-to-toggle: same button twice clears the result
+  entry.result = entry.result === result ? null : result;
+  ev.results[key] = entry;
+  Storage.setCurrentEvent(ev);
+  renderRecordOnly();
+}
+
+function setRecordOnlyMatchScore(slotIdx, side, raw) {
+  const ev = Storage.getCurrentEvent();
+  if (!ev) return;
+  const key = `${slotIdx}:1`;
+  const entry = ev.results[key] || {};
   const trimmed = String(raw).trim();
   let value = null;
   if (trimmed !== '') {
     const n = Number(trimmed);
     if (Number.isFinite(n) && n >= 0) value = n;
   }
-  if (side === 'a') draft.scoreA = value;
-  else draft.scoreB = value;
+  if (side === 'a') entry.scoreA = value;
+  else entry.scoreB = value;
   // Auto-derive the result from a complete score pair (same rule as
-  // the in-tournament score entry)
-  if (draft.scoreA !== null && draft.scoreB !== null) {
-    if (draft.scoreA > draft.scoreB) draft.result = 'A';
-    else if (draft.scoreA < draft.scoreB) draft.result = 'B';
-    else draft.result = 'D';
+  // the in-tournament score entry).
+  if (entry.scoreA != null && entry.scoreB != null) {
+    if (entry.scoreA > entry.scoreB) entry.result = 'A';
+    else if (entry.scoreA < entry.scoreB) entry.result = 'B';
+    else entry.result = 'D';
   }
+  ev.results[key] = entry;
+  Storage.setCurrentEvent(ev);
   renderRecordOnly();
 }
 
-function setRecordOnlyCountsForPoints(checked) {
-  if (!ui.recordOnlyDraft) ui.recordOnlyDraft = freshRecordOnlyDraft();
-  ui.recordOnlyDraft.countsForPoints = !!checked;
-}
-
-// Validates the draft and adds the match to the current event.
-function addRecordOnlyMatch() {
-  const draft = ui.recordOnlyDraft;
-  if (!draft) return;
-  if (draft.teamA.size === 0 || draft.teamB.size === 0) {
-    alert(t('record.alert.need_both_teams'));
-    return;
-  }
-  if (!draft.result) {
-    alert(t('record.alert.need_result'));
-    return;
-  }
-  // No need to check for player overlap — the cycle-on-tap chip UI
-  // makes it impossible for a single player to land on both teams.
-
+function setRecordOnlyMatchCounts(slotIdx, checked) {
   const ev = Storage.getCurrentEvent();
   if (!ev) return;
+  const slot = ev.plan.schedule[slotIdx];
+  if (!slot) return;
+  slot.matches[0].kind = checked ? 'ranked' : 'friendly';
+  Storage.setCurrentEvent(ev);
+  // No re-render needed — checkbox state is already on the DOM and
+  // the visible card doesn't change shape based on this flag.
+}
 
-  // Materialise two new team objects (note: indices into ev.teams,
-  // never reordered, so existing schedule references stay stable
-  // even after a later remove leaves orphans behind)
+// Append a fresh empty match card. The user fills in players +
+// scores in place; nothing commits until "Finish".
+function addRecordOnlyMatch() {
+  const ev = Storage.getCurrentEvent();
+  if (!ev || ev.plan?.format !== 'recordonly') return;
+
   const matchNum = ev.plan.schedule.length + 1;
   const teamAIdx = ev.teams.length;
   ev.teams.push({
     id: `t_ro_${teamAIdx}`,
     name: t('record.match.team_a_n', { n: matchNum }),
-    players: Array.from(draft.teamA),
+    players: [],
   });
   const teamBIdx = ev.teams.length;
   ev.teams.push({
     id: `t_ro_${teamBIdx}`,
     name: t('record.match.team_b_n', { n: matchNum }),
-    players: Array.from(draft.teamB),
+    players: [],
   });
-
-  // Add a new schedule slot for this match (one match per slot, on
-  // court 1 — record-only doesn't model courts/time at all)
-  const slotIdx = ev.plan.schedule.length;
   ev.plan.schedule.push({
     phase: 'recordonly',
     round: matchNum,
@@ -1602,21 +1603,18 @@ function addRecordOnlyMatch() {
       court: 1,
       team_a: teamAIdx,
       team_b: teamBIdx,
-      kind: draft.countsForPoints ? 'ranked' : 'friendly',
+      kind: 'ranked',
     }],
   });
   ev.plan.slotsUsed = ev.plan.schedule.length;
-
-  // Record the result. Object-form so commitEvent's helper sees
-  // the scores too.
-  const entry = { result: draft.result };
-  if (draft.scoreA !== null) entry.scoreA = draft.scoreA;
-  if (draft.scoreB !== null) entry.scoreB = draft.scoreB;
-  ev.results[`${slotIdx}:1`] = entry;
-
   Storage.setCurrentEvent(ev);
-  ui.recordOnlyDraft = freshRecordOnlyDraft();
   renderRecordOnly();
+  // Bring the new card into view so the user knows where to start typing.
+  setTimeout(() => {
+    const cards = document.querySelectorAll('#record-match-list .record-match-card');
+    const last = cards[cards.length - 1];
+    if (last && last.scrollIntoView) last.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 0);
 }
 
 // Removes one recorded match. Re-keys ev.results so the slot indices
@@ -1629,9 +1627,6 @@ function removeRecordOnlyMatch(slotIdx) {
   if (!confirm(t('record.confirm.remove'))) return;
 
   ev.plan.schedule.splice(slotIdx, 1);
-  // Re-key results: slot N becomes slot N-1 for everything after the
-  // removed slot. Build a fresh results object so we don't leave
-  // orphan keys behind.
   const oldResults = ev.results;
   const newResults = {};
   ev.plan.schedule.forEach((slot, newIdx) => {
@@ -1641,7 +1636,6 @@ function removeRecordOnlyMatch(slotIdx) {
       const newKey = `${newIdx}:${m.court}`;
       if (oldResults[oldKey]) newResults[newKey] = oldResults[oldKey];
     });
-    // Update the slot's display number too
     slot.slot = newIdx + 1;
     slot.round = newIdx + 1;
   });
@@ -1651,13 +1645,36 @@ function removeRecordOnlyMatch(slotIdx) {
   renderRecordOnly();
 }
 
-// Wraps up the record-only event by going through the same
-// commitEvent + auto-backup + done view path that finishTournament
-// uses. The plan.format = 'recordonly' tag carries through to the
-// history archive.
+// Wraps up the record-only event. Validates every card first; if any
+// is incomplete, alerts with the offending match number. Otherwise
+// goes through the same commitEvent + auto-backup + done view path
+// that finishTournament uses.
 function finishRecordOnly() {
   const ev = Storage.getCurrentEvent();
   if (!ev) return;
+
+  for (let i = 0; i < ev.plan.schedule.length; i++) {
+    const slot = ev.plan.schedule[i];
+    const m = slot.matches[0];
+    const teamA = ev.teams[m.team_a];
+    const teamB = ev.teams[m.team_b];
+    if (!teamA.players.length || !teamB.players.length) {
+      alert(t('record.alert.match_invalid', {
+        n: i + 1,
+        reason: t('record.alert.need_both_teams'),
+      }));
+      return;
+    }
+    const entry = ev.results[`${i}:1`];
+    if (!entry || !entry.result) {
+      alert(t('record.alert.match_invalid', {
+        n: i + 1,
+        reason: t('record.alert.need_result'),
+      }));
+      return;
+    }
+  }
+
   if (!confirm(t('record.confirm.finish'))) return;
 
   try {
@@ -2324,7 +2341,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     ui.searchQuery = '';
     showView('search');
   };
-  document.getElementById('btn-resume-event').onclick = () => showView('tournament');
+  document.getElementById('btn-resume-event').onclick = () => {
+    // Dispatch by event format — record-only events live in their own view,
+    // every other format runs through the regular tournament view.
+    const ev = Storage.getCurrentEvent();
+    if (!ev) return;
+    if (ev.plan?.format === 'recordonly') showView('recordonly');
+    else showView('tournament');
+  };
 
   // Search
   document.getElementById('search-input').addEventListener('input', e => {
@@ -2373,15 +2397,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-form-teams').onclick = generateTeams;
   document.getElementById('btn-record-only').onclick = startRecordOnly;
 
-  // Record-only view
+  // Record-only view: per-card controls are wired by bindRecordOnlyMatchCards()
+  // on each render, so the only top-level buttons here are "add" and "finish".
   document.getElementById('btn-record-add').onclick = addRecordOnlyMatch;
   document.getElementById('btn-record-finish').onclick = finishRecordOnly;
-  document.getElementById('record-result-a').onclick = () => setRecordOnlyResult('A');
-  document.getElementById('record-result-d').onclick = () => setRecordOnlyResult('D');
-  document.getElementById('record-result-b').onclick = () => setRecordOnlyResult('B');
-  document.getElementById('record-score-a').addEventListener('blur', e => setRecordOnlyScore('a', e.target.value));
-  document.getElementById('record-score-b').addEventListener('blur', e => setRecordOnlyScore('b', e.target.value));
-  document.getElementById('record-counts-points').onchange = e => setRecordOnlyCountsForPoints(e.target.checked);
   document.getElementById('btn-quick-add').onclick = () => {
     const input = document.getElementById('quick-add-player');
     const p = Storage.addPlayer(input.value);

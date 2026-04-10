@@ -252,41 +252,22 @@
     <!-- ═══════════════════════════════════════════════════ -->
     <!-- VIEW: RECORD-ONLY (manually log arbitrary matches)  -->
     <!-- ═══════════════════════════════════════════════════ -->
+    <!-- Each recorded match is its own editable card. The user adds      -->
+    <!-- empty cards on demand and fills them in any order; nothing       -->
+    <!-- commits to the database until "Finish & submit all" is tapped.   -->
     <section class="view hidden" id="view-recordonly">
       <div class="card">
         <div class="view-header">
-          <button class="btn-back" data-goto="setup" data-i18n="common.back"></button>
+          <button class="btn-back" data-goto="home" data-i18n="common.back_home"></button>
           <h2 data-i18n="record.title"></h2>
         </div>
 
         <div class="hint" id="record-event-info"></div>
-
-        <h3 data-i18n="record.add.title"></h3>
         <div class="hint" data-i18n="record.add.players.hint"></div>
-        <div id="record-attendee-list" class="record-attendee-list"></div>
-        <div class="record-team-counts" id="record-team-counts"></div>
 
-        <div class="score-inputs">
-          <input class="score-input" id="record-score-a" type="number" inputmode="numeric"
-                 min="0" max="999" data-i18n-ph="tour.score.placeholder">
-          <span class="score-dash">−</span>
-          <input class="score-input" id="record-score-b" type="number" inputmode="numeric"
-                 min="0" max="999" data-i18n-ph="tour.score.placeholder">
-        </div>
-        <div class="result-btns">
-          <button class="result-btn" id="record-result-a" data-i18n="tour.result.a"></button>
-          <button class="result-btn" id="record-result-d" data-i18n="tour.result.d"></button>
-          <button class="result-btn" id="record-result-b" data-i18n="tour.result.b"></button>
-        </div>
-        <label class="record-toggle">
-          <input type="checkbox" id="record-counts-points" checked>
-          <span data-i18n="record.add.counts"></span>
-        </label>
-        <button class="btn-secondary" id="btn-record-add" data-i18n="record.add.submit"></button>
-
-        <h3 data-i18n="record.list.title"></h3>
         <div id="record-match-list"></div>
 
+        <button class="btn-secondary full-width" id="btn-record-add" data-i18n="record.btn.add_match"></button>
         <button class="btn-primary" id="btn-record-finish" data-i18n="record.btn.finish"></button>
       </div>
     </section>

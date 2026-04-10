@@ -527,6 +527,25 @@ input:focus, textarea:focus, select:focus {
 }
 
 /* ─── Record-only view ─────────────────────────────────────────── */
+/* Each match in record-only mode is its own editable card. The user
+   can add and reorder freely; nothing commits until "Finish". */
+.record-match-card {
+  border: 1.5px solid var(--primary);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--card-bg);
+}
+.record-match-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.record-match-card-header strong {
+  font-size: 1rem;
+  color: var(--primary);
+}
 .record-attendee-list {
   display: flex;
   flex-wrap: wrap;
@@ -569,7 +588,7 @@ input:focus, textarea:focus, select:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 12px 0;
+  margin: 12px 0 0;
   font-size: 0.88rem;
   cursor: pointer;
 }
@@ -577,39 +596,6 @@ input:focus, textarea:focus, select:focus {
   width: 18px;
   height: 18px;
   cursor: pointer;
-}
-.record-match-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card-bg);
-  margin-bottom: 6px;
-}
-.record-match-main {
-  flex: 1;
-  min-width: 0;
-}
-.record-match-teams {
-  font-size: 0.85rem;
-  line-height: 1.5;
-}
-.record-match-result {
-  margin-top: 4px;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-}
-.record-kind-tag {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 1px 8px;
-  border-radius: 10px;
-  background: var(--primary-light);
-  color: var(--primary-dark);
-  font-size: 0.72rem;
-  font-weight: 600;
 }
 
 .attendee-list {
